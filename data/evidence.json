@@ -1,16 +1,12 @@
 {
-  "story_confirmed": "U6已确认：团队成员只能看到自己有权限的项目内容",
-  "task_claimed": "邵子懿已认领Sprint可信交付舱技术任务",
-  "ai_branch": "feat/sprint-evidence-cockpit",
-  "feature_commit": "c7e0fb1 feat: add role-gated evidence cockpit",
-  "tests_passed": "py -m pytest tests -q -p no:cacheprovider：15 passed",
-  "human_review": "待杨濠宇人工审查",
-  "chain": [
-    {"name": "用户故事", "value": "U6：按岗位权限查看项目内容"},
-    {"name": "Sprint任务", "value": "实现四岗位内容隔离和DRI证据查看"},
-    {"name": "AI功能分支", "value": "feat/sprint-evidence-cockpit"},
-    {"name": "Git提交", "value": "待实际候选提交"},
-    {"name": "自动化测试", "value": "待实际测试结果"},
-    {"name": "人工审查", "value": "待杨濠宇人工审查"}
-  ]
+  "story_confirmed": {"status": "approved", "value": "U6：团队成员只能看到自己有权限的项目内容"},
+  "task_claimed": {"status": "approved", "value": "邵子懿已认领Sprint可信交付舱技术任务"},
+  "ai_branch": {"status": "approved", "value": "feat/sprint-evidence-cockpit"},
+  "feature_commit": {"status": "approved", "value": "2b88da8 fix: enforce three-state DoD gate and read top-level evidence"},
+  "tests_passed": {"status": "approved", "value": "py -m pytest tests -q -p no:cacheprovider → 51 passed in 0.26s"},
+  "human_review": {"status": "pending", "value": "待杨濠宇二次复审（第一次结论：退回修复，已按最小修复要求整改）"},
+  "branch": "feat/sprint-evidence-cockpit",
+  "latest_commit": "2b88da8",
+  "review_decision": "rejected",
+  "review_note": "第一次审查结论为退回修复；已修复DoD三态、证据链顶层读取、测试与注释，等待二次复审；main尚未合并。"
 }
