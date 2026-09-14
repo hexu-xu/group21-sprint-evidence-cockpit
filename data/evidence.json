@@ -2,8 +2,8 @@
   "story_confirmed": "U6已确认：团队成员只能看到自己有权限的项目内容",
   "task_claimed": "邵子懿已认领Sprint可信交付舱技术任务",
   "ai_branch": "feat/sprint-evidence-cockpit",
-  "feature_commit": "待实际候选提交",
-  "tests_passed": "待实际测试结果",
+  "feature_commit": "c7e0fb1 feat: add role-gated evidence cockpit",
+  "tests_passed": "py -m pytest tests -q -p no:cacheprovider：15 passed",
   "human_review": "待杨濠宇人工审查",
   "chain": [
     {"name": "用户故事", "value": "U6：按岗位权限查看项目内容"},
