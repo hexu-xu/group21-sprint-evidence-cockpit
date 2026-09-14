@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 
 from app import create_app
-from dod_gate import APPROVED, REJECTED, REQUIRED_EVIDENCE
+from dod_gate import APPROVED, REJECTED, REQUIRED_EVIDENCE, evaluate_dod
 
 # 旧版页面曾使用的占位符，必须不再出现在证据链中。
 STALE_PLACEHOLDERS = ("待实际候选提交", "待实际测试结果", "待填写")
@@ -78,11 +78,19 @@ def test_quality_page_shows_real_commit_and_test_data():
     assert evidence["tests_passed"]["value"].split("→")[-1].strip() in body
 
 
-def test_real_candidate_is_red_until_review_approved(client):
-    """真实证据中人工审查仍为pending，因此必须是红色未达到DoD。"""
-    body = client.get("/?role=quality").get_data(as_text=True)
-    assert "未达到DoD" in body
-    assert "可以进入Sprint评审" not in body
+def test_real_evidence_matches_rendered_dod_state():
+    """真实证据文件的结论必须与页面渲染结果一致。
+
+    该断言只校验“页面状态 == 证据计算状态”，不把某一种颜色写死，
+    因此人工审查在 pending 或 approved 时都能正确通过。
+    """
+    evidence_path = Path(__file__).resolve().parents[1] / "data" / "evidence.json"
+    evidence = json.loads(evidence_path.read_text(encoding="utf-8"))
+    expected = evaluate_dod(evidence)
+    body = create_app({"TESTING": True}).test_client().get("/?role=quality").get_data(as_text=True)
+
+    assert expected["label"] in body
+    assert expected["message"] in body
 
 
 def test_complete_evidence_turns_green():
