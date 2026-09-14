@@ -4,9 +4,9 @@
   "ai_branch": {"status": "approved", "value": "feat/sprint-evidence-cockpit"},
   "feature_commit": {"status": "approved", "value": "2b88da8 fix: enforce three-state DoD gate and read top-level evidence"},
   "tests_passed": {"status": "approved", "value": "py -m pytest tests -q -p no:cacheprovider → 51 passed in 0.26s"},
-  "human_review": {"status": "pending", "value": "待杨濠宇二次复审（第一次结论：退回修复，已按最小修复要求整改）"},
+  "human_review": {"status": "approved", "value": "杨濠宇二次复审结论：通过，允许合并main；独立复测51 passed in 0.22s"},
   "branch": "feat/sprint-evidence-cockpit",
   "latest_commit": "2b88da8",
-  "review_decision": "rejected",
-  "review_note": "第一次审查结论为退回修复；已修复DoD三态、证据链顶层读取、测试与注释，等待二次复审；main尚未合并。"
+  "review_decision": "approved",
+  "review_note": "第一次复审退回修复；二次复审通过（杨濠宇独立复测51 passed in 0.22s），允许合并main。人工审查结论产生于main合并之前。"
 }
