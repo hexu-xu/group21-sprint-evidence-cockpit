@@ -1,0 +1,78 @@
+{% extends "base.html" %}
+{% set active_page = 'tasks' %}
+{% block title %}任务故事地图 · 爱管理{% endblock %}
+{% block breadcrumb %}任务看板{% endblock %}
+{% block content %}
+  {% if project %}
+    <section class="page-heading map-page-heading">
+      <div>
+        <div class="eyebrow">{{ project.name }} <span class="eyebrow-divider">/</span> 任务看板</div>
+        <h1>{% if can_manage %}团队任务故事地图{% elif current_user.platform_role == 'read_only_admin' %}项目任务故事地图{% else %}我的任务故事地图{% endif %}</h1>
+        <p>按模块查看任务、负责人和时间安排。</p>
+      </div>
+      {% if can_manage %}<a class="button button-primary" href="{{ url_for('tasks.new_task', project_id=project.id) }}">新建任务</a>{% endif %}
+    </section>
+
+    <section class="metric-grid" aria-label="任务统计">
+      <div class="metric-card"><span>任务总数</span><strong>{{ stats.total }}</strong><small>当前项目</small></div>
+      <div class="metric-card"><span>进行中</span><strong>{{ stats.in_progress }}</strong><small>正在推进</small></div>
+      <div class="metric-card"><span>已完成</span><strong>{{ stats.done }}</strong><small>完成率 {{ ((stats.done / stats.total) * 100) | round | int if stats.total else 0 }}%</small></div>
+      <div class="metric-card"><span>已逾期</span><strong>{{ stats.overdue }}</strong><small>需要关注</small></div>
+    </section>
+
+    <section class="story-map" aria-labelledby="map-title">
+      <div class="story-map-header">
+        <div><span class="section-kicker">TASK MAP</span><h2 id="map-title">任务故事地图</h2><p>选择任务状态，沿模块查看当前进展。</p></div>
+        <span class="map-total">{{ modules | length }} 个模块 · {{ stats.total }} 项任务</span>
+      </div>
+      <nav class="map-tabs" aria-label="任务状态">
+        {% for status, label in [('todo','待完成'),('in_progress','进行中'),('done','已完成')] %}
+          <a class="map-tab {% if active_status == status %}is-active{% endif %}" href="{{ url_for('tasks.list_tasks', project_id=project.id, status=status) }}" {% if active_status == status %}aria-current="page"{% endif %}>{{ label }}<span>{{ board[status] | length }}</span></a>
+        {% endfor %}
+      </nav>
+      <div class="story-map-body">
+        {% if modules %}
+          {% for module, groups in modules.items() %}
+            <section class="map-lane" aria-label="{{ module }}模块">
+              <header class="map-module">
+                <span class="module-index">模块 {{ '%02d' | format(loop.index) }}</span>
+                <h3>{{ module }}</h3>
+                <p>共 {{ groups.todo | length + groups.in_progress | length + groups.done | length }} 项任务</p>
+              </header>
+              <div class="map-lane-content">
+                <div class="map-lane-label"><span>{{ {'todo':'待完成','in_progress':'进行中','done':'已完成'}[active_status] }}</span><small>{{ groups[active_status] | length }} 项</small></div>
+                <div class="map-cards">
+                  {% for task in groups[active_status] %}
+                    <a class="map-task-card" href="{{ url_for('tasks.task_detail', task_id=task.id) }}">
+                      <div class="task-card-top"><span class="priority-badge {{ task.priority }}">{{ {'low':'低优先级','medium':'中优先级','high':'高优先级'}[task.priority] }}</span><span class="task-id">#{{ task.id }}</span></div>
+                      <h4>{{ task.title }}</h4>
+                      <p class="task-summary">{{ task.description | truncate(82, True) }}</p>
+                      <div class="task-time {% if task.due_date < today and task.status != 'done' %}is-overdue{% endif %}"><span>截止时间</span><strong>{{ task.due_date.strftime('%Y-%m-%d') }}</strong></div>
+                      {% if task.completed_at %}<div class="task-time completion-time"><span>完成时间</span><strong>{{ task.completed_at | local_datetime }}</strong></div>{% endif %}
+                      <div class="task-card-footer"><span>负责人</span><strong>{{ task.assignee.username }}</strong></div>
+                    </a>
+                  {% else %}
+                    <div class="map-empty">当前模块暂无{{ {'todo':'待完成','in_progress':'进行中','done':'已完成'}[active_status] }}任务</div>
+                  {% endfor %}
+                </div>
+              </div>
+            </section>
+          {% endfor %}
+        {% else %}
+          <div class="map-first-empty"><h3>故事地图还没有任务</h3><p>{% if can_manage %}创建第一项任务，并指定所属模块。{% else %}有任务分配给你后，会显示在这里。{% endif %}</p></div>
+        {% endif %}
+      </div>
+    </section>
+
+    <details class="list-section">
+      <summary><span>任务清单</span><small>查看全部 {{ stats.total }} 项任务</small></summary>
+      {% if tasks %}
+        <div class="table-wrap"><table><thead><tr><th>任务名称</th><th>所属模块</th><th>负责人</th><th>优先级</th><th>截止时间</th><th>完成时间</th><th>状态</th></tr></thead><tbody>
+        {% for task in tasks %}<tr><td><a class="table-task-link" href="{{ url_for('tasks.task_detail', task_id=task.id) }}">{{ task.title }}</a></td><td>{{ task.module_name }}</td><td>{{ task.assignee.username }}</td><td><span class="priority-badge {{ task.priority }}">{{ {'low':'低','medium':'中','high':'高'}[task.priority] }}</span></td><td class="{% if task.due_date < today and task.status != 'done' %}overdue-text{% endif %}">{{ task.due_date }}</td><td>{{ task.completed_at | local_datetime }}</td><td><span class="status-pill {{ task.status }}">{{ {'todo':'待完成','in_progress':'进行中','done':'已完成'}[task.status] }}</span></td></tr>{% endfor %}
+        </tbody></table></div>
+      {% else %}<div class="list-empty">还没有任务。</div>{% endif %}
+    </details>
+  {% else %}
+    <section class="empty-project"><h1>暂未加入项目</h1><p>请联系项目管理员，将你的账号添加到项目后再查看任务。</p></section>
+  {% endif %}
+{% endblock %}

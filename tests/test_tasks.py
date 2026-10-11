@@ -1,0 +1,299 @@
+"""Task creation, assignment, visibility and status authorization."""
+
+import re
+from datetime import date
+
+import pytest
+from werkzeug.security import generate_password_hash
+
+from app import create_app
+from aimanager.extensions import db
+from aimanager.models import Project, ProjectMember, Task, TaskStatusEvent, User
+
+
+@pytest.fixture
+def app():
+    application = create_app({
+        "TESTING": True, "SECRET_KEY": "test-secret", "WTF_CSRF_ENABLED": False,
+        "SQLALCHEMY_DATABASE_URI": "sqlite:///:memory:",
+    })
+    with application.app_context():
+        db.create_all()
+        for username, role in (("manager", "standard"), ("member", "standard"), ("member2", "standard"), ("outsider", "standard"), ("admin", "admin"), ("observer", "read_only_admin")):
+            db.session.add(User(
+                username=username, password_hash=generate_password_hash("test-password"),
+                platform_role=role, evidence_role="quality" if username == "admin" else "product",
+            ))
+        db.session.flush()
+        users = {u.username: u for u in db.session.scalars(db.select(User)).all()}
+        project = Project(name="爱管理", created_by_id=users["manager"].id)
+        db.session.add(project)
+        db.session.flush()
+        for username, role in (("manager", "manager"), ("member", "member"), ("member2", "member")):
+            db.session.add(ProjectMember(project_id=project.id, user_id=users[username].id, project_role=role))
+        db.session.commit()
+    yield application
+    with application.app_context():
+        db.drop_all()
+
+
+@pytest.fixture
+def client(app):
+    return app.test_client()
+
+
+def login(client, username):
+    return client.post("/auth/login", data={"username": username, "password": "test-password"})
+
+
+def logout(client):
+    return client.post("/auth/logout")
+
+
+def form(app, assignee="member"):
+    with app.app_context():
+        user = db.session.scalar(db.select(User).where(User.username == assignee))
+        return {
+            "project_id": "1", "module_name": "用户与权限", "title": "实现任务协作",
+            "description": "连接任务、成员与状态", "priority": "high",
+            "due_date": "2026-10-20", "assignee_id": str(user.id),
+        }
+
+
+def test_login_rejects_wrong_password_and_redirects_unauthenticated(client):
+    assert client.get("/tasks").status_code == 302
+    response = client.post("/auth/login", data={"username": "manager", "password": "wrong"})
+    assert "用户名或密码错误" in response.get_data(as_text=True)
+    assert client.get("/tasks").status_code == 302
+
+
+def test_login_page_switches_existing_account(app, client):
+    login(client, "manager")
+    client.post("/tasks/new", data=form(app, "member"))
+    login(client, "admin")
+    login_page = client.get("/auth/login")
+    assert login_page.status_code == 200
+    assert "当前登录：<strong>admin</strong>" in login_page.get_data(as_text=True)
+
+    wrong = client.post("/auth/login", data={"username": "member", "password": "wrong"})
+    assert "当前仍以 admin 登录" in wrong.get_data(as_text=True)
+    assert client.get("/quality").status_code == 200
+
+    switched = login(client, "member")
+    assert switched.status_code == 302
+    body = client.get("/tasks").get_data(as_text=True)
+    assert "member" in body and "实现任务协作" in body
+    assert "新建任务" not in body
+    assert client.get("/quality").status_code == 403
+
+
+def test_manager_creates_and_sees_assigned_task(app, client):
+    login(client, "manager")
+    response = client.post("/tasks/new", data=form(app))
+    assert response.status_code == 302
+    with app.app_context():
+        task = db.session.scalar(db.select(Task))
+        assert (task.title, task.description, task.priority, str(task.due_date), task.status) == (
+            "实现任务协作", "连接任务、成员与状态", "high", "2026-10-20", "todo"
+        )
+        assert task.assignee.username == "member"
+        assert task.module_name == "用户与权限"
+        events = db.session.scalars(db.select(TaskStatusEvent)).all()
+        assert len(events) == 1 and events[0].to_status == "todo"
+    body = client.get("/tasks").get_data(as_text=True)
+    assert "实现任务协作" in body and "member" in body
+    assert "任务看板" in body
+    assert "任务总数" in body
+    assert "任务故事地图" in body and "用户与权限" in body
+
+
+def test_story_map_tabs_group_modules_and_show_completion_time(app, client):
+    login(client, "manager")
+    first = form(app)
+    first["module_name"] = "用户与权限"
+    client.post("/tasks/new", data=first)
+    second = form(app, "member2")
+    second.update({"module_name": "任务协作", "title": "处理任务状态"})
+    client.post("/tasks/new", data=second)
+    client.post("/tasks/2/status", data={"status": "done"})
+
+    todo = client.get("/tasks?status=todo").get_data(as_text=True)
+    done = client.get("/tasks?status=done").get_data(as_text=True)
+    assert 'status=todo" aria-current="page"' in todo
+    assert 'status=done" aria-current="page"' in done
+    assert todo.count('class="map-task-card"') == 1
+    assert done.count('class="map-task-card"') == 1
+    assert "用户与权限" in todo and "任务协作" in todo
+    assert "完成时间" in done and "处理任务状态" in done
+    assert client.get("/tasks?status=unknown").status_code == 400
+
+
+def test_manager_can_reclassify_task_but_member_cannot(app, client):
+    login(client, "manager")
+    client.post("/tasks/new", data=form(app))
+    assert client.post("/tasks/1/module", data={"module_name": "项目管理"}).status_code == 302
+    with app.app_context():
+        assert db.session.get(Task, 1).module_name == "项目管理"
+    assert "项目管理" in client.get("/tasks").get_data(as_text=True)
+    assert "调整所属模块" in client.get("/tasks/1").get_data(as_text=True)
+    assert client.post("/tasks/1/module", data={"module_name": ""}).status_code == 302
+    with app.app_context():
+        assert db.session.get(Task, 1).module_name == "项目管理"
+    logout(client)
+    login(client, "member")
+    assert "调整所属模块" not in client.get("/tasks/1").get_data(as_text=True)
+    assert client.post("/tasks/1/module", data={"module_name": "越权修改"}).status_code == 403
+
+
+def test_manager_deletes_task_and_its_status_history(app, client):
+    login(client, "manager")
+    client.post("/tasks/new", data=form(app))
+    client.post("/tasks/1/status", data={"status": "in_progress"})
+    detail = client.get("/tasks/1").get_data(as_text=True)
+    assert "删除此任务" in detail
+    confirm = client.get("/tasks/1/delete")
+    assert confirm.status_code == 200
+    assert "确认删除任务" in confirm.get_data(as_text=True)
+    response = client.post("/tasks/1/delete", data={"confirm_task_id": "1"})
+    assert response.status_code == 302
+    with app.app_context():
+        assert db.session.get(Task, 1) is None
+        assert db.session.scalars(db.select(TaskStatusEvent)).all() == []
+    assert "实现任务协作" not in client.get("/tasks").get_data(as_text=True)
+
+
+def test_admin_can_delete_task(app, client):
+    login(client, "manager")
+    client.post("/tasks/new", data=form(app))
+    logout(client)
+    login(client, "admin")
+    assert client.get("/tasks/1/delete").status_code == 200
+    assert client.post("/tasks/1/delete", data={"confirm_task_id": "1"}).status_code == 302
+    with app.app_context():
+        assert db.session.get(Task, 1) is None
+
+
+@pytest.mark.parametrize("username", ["member", "member2", "observer", "outsider"])
+def test_non_managers_cannot_delete_tasks(app, client, username):
+    login(client, "manager")
+    client.post("/tasks/new", data=form(app))
+    logout(client)
+    login(client, username)
+    if username in {"member", "observer"}:
+        assert "删除此任务" not in client.get("/tasks/1").get_data(as_text=True)
+    assert client.get("/tasks/1/delete").status_code == 403
+    assert client.post("/tasks/1/delete", data={"confirm_task_id": "1"}).status_code == 403
+    with app.app_context():
+        assert db.session.get(Task, 1) is not None
+
+
+def test_delete_requires_confirmation_and_csrf(app, client):
+    login(client, "manager")
+    client.post("/tasks/new", data=form(app))
+    assert client.post("/tasks/1/delete", data={"confirm_task_id": "2"}).status_code == 302
+    with app.app_context():
+        assert db.session.get(Task, 1) is not None
+
+    app.config["WTF_CSRF_ENABLED"] = True
+    assert client.post("/tasks/1/delete", data={"confirm_task_id": "1"}).status_code == 400
+    page = client.get("/tasks/1/delete").get_data(as_text=True)
+    token = re.search(r'name="csrf_token" value="([^"]+)"', page).group(1)
+    assert client.post("/tasks/1/delete", data={
+        "confirm_task_id": "1", "csrf_token": token,
+    }).status_code == 302
+    with app.app_context():
+        assert db.session.get(Task, 1) is None
+
+
+def test_project_manager_cannot_delete_another_projects_task(app, client):
+    with app.app_context():
+        admin = db.session.scalar(db.select(User).where(User.username == "admin"))
+        member = db.session.scalar(db.select(User).where(User.username == "member"))
+        other_project = Project(name="其他项目", created_by_id=admin.id)
+        db.session.add(other_project)
+        db.session.flush()
+        task = Task(
+            project_id=other_project.id, module_name="后台服务", title="其他项目任务",
+            description="仅该项目负责人可管理", priority="medium", due_date=date(2026, 10, 20),
+            assignee_id=member.id, created_by_id=admin.id, status="todo",
+        )
+        db.session.add(task)
+        db.session.commit()
+        task_id = task.id
+    login(client, "manager")
+    assert client.get(f"/tasks/{task_id}/delete").status_code == 403
+    assert client.post(f"/tasks/{task_id}/delete", data={"confirm_task_id": str(task_id)}).status_code == 403
+    with app.app_context():
+        assert db.session.get(Task, task_id) is not None
+
+
+def test_member_can_only_view_and_update_own_task(app, client):
+    login(client, "manager")
+    client.post("/tasks/new", data=form(app, "member"))
+    other = form(app, "member2")
+    other["title"] = "另一成员任务"
+    client.post("/tasks/new", data=other)
+    logout(client)
+    login(client, "member")
+    body = client.get("/tasks?project_id=1").get_data(as_text=True)
+    assert "实现任务协作" in body and "另一成员任务" not in body
+    assert client.get("/tasks/2").status_code == 403
+    assert client.post("/tasks/2/status", data={"status": "done"}).status_code == 403
+    assert client.post("/tasks/1/status", data={"status": "in_progress"}).status_code == 302
+    with app.app_context():
+        task = db.session.get(Task, 1)
+        assert task.status == "in_progress"
+        assert [(e.from_status, e.to_status) for e in db.session.scalars(db.select(TaskStatusEvent).where(TaskStatusEvent.task_id == 1).order_by(TaskStatusEvent.id))] == [(None, "todo"), ("todo", "in_progress")]
+    logout(client)
+    login(client, "manager")
+    assert "进行中" in client.get("/tasks").get_data(as_text=True)
+
+
+def test_manager_only_creation_and_valid_project_assignee(app, client):
+    login(client, "member")
+    assert client.post("/tasks/new", data=form(app)).status_code == 403
+    logout(client)
+    login(client, "manager")
+    bad = form(app, "outsider")
+    response = client.post("/tasks/new", data=bad)
+    assert "负责人必须是当前项目" in response.get_data(as_text=True)
+    bad = form(app)
+    bad["priority"] = "urgent"
+    assert "有效优先级" in client.post("/tasks/new", data=bad).get_data(as_text=True)
+    with app.app_context():
+        assert db.session.scalar(db.select(db.func.count(Task.id))) == 0
+
+
+def test_outsider_cannot_view_project_and_observer_cannot_write(app, client):
+    login(client, "manager")
+    client.post("/tasks/new", data=form(app))
+    logout(client)
+    login(client, "outsider")
+    assert client.get("/tasks?project_id=1").status_code == 403
+    assert client.get("/tasks/1").status_code == 403
+    logout(client)
+    login(client, "observer")
+    assert "实现任务协作" in client.get("/tasks").get_data(as_text=True)
+    assert client.post("/tasks/new", data=form(app)).status_code == 403
+    assert client.post("/tasks/1/status", data={"status": "done"}).status_code == 403
+
+
+def test_invalid_status_does_not_write_history(app, client):
+    login(client, "manager")
+    client.post("/tasks/new", data=form(app))
+    response = client.post("/tasks/1/status", data={"status": "blocked"}, follow_redirects=True)
+    assert "有效任务状态" in response.get_data(as_text=True)
+    with app.app_context():
+        assert db.session.get(Task, 1).status == "todo"
+        assert db.session.scalar(db.select(db.func.count(TaskStatusEvent.id))) == 1
+
+
+def test_product_pages_do_not_show_coursework_terms(client):
+    login_page = client.get("/auth/login").get_data(as_text=True)
+    login(client, "manager")
+    pages = [login_page, client.get("/tasks").get_data(as_text=True),
+             client.get("/tasks/new").get_data(as_text=True)]
+    for page in pages:
+        assert "Sprint" not in page
+        assert "实验" not in page
+        assert "作业" not in page

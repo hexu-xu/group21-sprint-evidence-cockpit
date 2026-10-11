@@ -1,141 +1,79 @@
-# Sprint可信交付舱
+# 爱管理
 
-21组“爱管理”实验二 Sprint 1 的增量交付物。页面按岗位隔离交付内容，并用本地 JSON 证据实时计算 DoD 状态——**不是说做完了，而是用证据证明做完了**。
+爱管理是一个面向团队的项目任务协作系统。当前版本提供可运行的任务闭环：项目经理创建任务，填写所属模块、描述、优先级和截止日期，分配项目成员；成员登录后查看自己的任务并更新状态；项目经理在故事地图中按模块与状态查看团队任务、负责人、截止时间和实际完成时间。管理员和项目经理可在任务详情中确认删除任务。
 
-本轮正式完成的用户故事只有实验一 Sprint 1 的 **U6：团队成员只能看到自己有权限的项目内容**。
+这是一版持续扩展中的产品。项目及成员由初始化命令创建；项目创建、成员管理、任务备注、复杂筛选等功能尚未开放。界面只展示已经实现的操作，不放课程或开发过程内容。
 
-## 当前状态
+## 技术结构
 
-| 项目 | 状态 |
-|---|---|
-| main 合并提交 | `0a82780`（DRI 二次复审通过后合并） |
-| 候选分支 | `feat/sprint-evidence-cockpit` = `9b802bd` |
-| 自动化测试 | 51 项全部通过 |
-| 人工审查 | 杨濠宇二次复审通过，允许合并 main |
-| 远程仓库 | https://github.com/hexu-xu/group21-sprint-evidence-cockpit |
-| DoD 页面状态 | 绿色「可以进入Sprint评审」（六项必要证据齐全） |
+- Flask 应用工厂与按业务拆分的 Blueprint
+- Flask-Login 管理登录会话，Werkzeug 保存密码哈希
+- Flask-SQLAlchemy + Flask-Migrate 管理 SQLite 数据和迁移
+- Flask-WTF 提供表单 CSRF 防护
+- Jinja 模板与原生 CSS，无外部前端构建步骤
+- pytest 覆盖登录、权限、任务闭环和历史交付门禁
 
-## 环境要求
+## 本地启动
 
-- Windows / macOS / Linux 均可
-- Python 3.10 及以上（开发环境为 Python 3.14）
-- 依赖仅 Flask 与 pytest，见 `requirements.txt`
-
-## 安装与启动
+需要 Python 3.10 或更新版本。以下命令在 PowerShell 中执行：
 
 ```powershell
 py -m venv .venv
-.\.venv\Scripts\Activate.ps1        # macOS/Linux: source .venv/bin/activate
-py -m pip install -r requirements.txt
-py app.py
+.\.venv\Scripts\Activate.ps1
+python -m pip install -r requirements.txt
+$env:DEMO_PASSWORD = "请换成自己设置的至少8位密码"
+python -m flask --app app db upgrade
+python -m flask --app app seed-demo
+python app.py
 ```
 
-启动后访问 http://127.0.0.1:5000/ ，按 Ctrl+C 停止。
+浏览器打开 <http://127.0.0.1:5000/auth/login>。SQLite 文件位于 `instance/aimanager.db`，已被 Git 忽略。`seed-demo` 可以重复执行，不会清除已有任务，也不会重置已有账号密码。本地首次启动会在已忽略的 `instance/.secret_key` 生成会话密钥，后续重启沿用；部署时可通过 `SECRET_KEY` 环境变量明确指定。可通过 `DATABASE_URL` 指定其他数据库，本版只验证过 SQLite。
 
-页面不依赖任何外部 CDN，可离线演示。
+| 演示账号 | 权限 |
+|---|---|
+| `admin` | 平台管理员，可查看、维护及删除任务 |
+| `manager` | 项目经理，可创建、分配、查看及删除项目任务 |
+| `member`、`member2` | 项目成员，只能查看和更新自己的任务 |
+| `observer` | 只读管理员，可查看任务，不能写入 |
 
-## 岗位与访问地址
+这些账号是本地预设身份；账号注册和用户管理尚未实现。密码由本机 `DEMO_PASSWORD` 环境变量指定，不写进仓库。
 
-| 岗位键 | 展示名 | 可见内容 | 示例地址 |
-|---|---|---|---|
-| `product` | 产品与范围 | U6 用户故事、用户价值、验收标准、当前演示状态 | `/?role=product` |
-| `tech` | 技术与架构 | Sprint 开发任务、功能分支、提交、运行说明 | `/?role=tech` |
-| `quality` | 质量与风险（DRI） | 完整八段证据链与 DoD 结论 | `/?role=quality` |
-| `ai_record` | AI协调与记录 | AI 角色、提示词、输出摘要、团队处置、证据缺口 | `/?role=ai_record` |
+## 操作流程
 
-权限规则：岗位只返回其职责范围内容；完整质量详情为 `/quality?role=quality`。非 `quality` 岗位访问 `/quality` 时，**服务端直接返回 HTTP 403**，不只是隐藏页面按钮。
+1. 以 `manager` 登录，打开“新建任务”，填写所属模块、任务标题、描述、优先级、截止日期和负责人。
+2. 保存后，在任务故事地图中切换“待完成／进行中／已完成”，按模块查看任务卡片及负责人。
+3. 以被分配的 `member` 登录，在“我的任务”中打开任务并更新状态。
+4. 再以 `manager` 登录，确认故事地图和任务清单中的状态同步变化；完成任务会显示实际完成时间。
+5. 以 `member2` 登录，确认看不到别人的任务；以 `observer` 登录，确认无法创建或修改任务。
+6. 以 `manager` 或 `admin` 打开任务详情，通过“删除此任务”进入确认页；确认后任务及状态记录会被删除。成员和只读管理员无权打开确认页或提交删除请求。
 
-未知的 `role` 参数会回落到 `product`，不会造成越权。
+已有账号登录时，可点击左下角“切换账号”，在登录页输入另一账号和密码；页面会显示当前登录身份，切换成功后按新身份加载工作台。
+
+任务列表在数据库查询时按身份过滤。负责人必须是当前项目的有效成员；任务状态变化同时记录在状态历史中。只读限制和质量详情权限均在服务端判断，修改 URL 参数无法提升权限。
 
 ## 测试
 
 ```powershell
-py -m pytest tests -q
+python -m pytest tests -q -p no:cacheprovider
 ```
 
-若本机 pytest 缓存目录报权限错误，可加参数：
+测试使用独立内存数据库，不修改本地演示数据。数据库结构从空库执行 `flask db upgrade` 初始化。
 
-```powershell
-py -m pytest tests -q -p no:cacheprovider
-```
-
-测试文件与覆盖范围：
-
-| 文件 | 覆盖内容 |
-|---|---|
-| `tests/test_permissions.py` | 岗位归一化、只有 quality 可看完整详情、四岗位均有展示名 |
-| `tests/test_dod_gate.py` | 三态归一化、任意一项 pending/rejected/布尔False 均不通过、八段证据链顺序与真实文本 |
-| `tests/test_routes.py` | 首页岗位隔离、非 DRI 不可见证据链、红绿状态、403 服务端校验、真实证据与页面一致 |
-
-## DoD 判定规则
-
-`data/evidence.json` 顶层保存六项必要证据，每项为三态结构：
-
-```json
-"human_review": {"status": "approved", "value": "杨濠宇二次复审结论：通过，允许合并main"}
-```
-
-- `approved`：已通过；
-- `rejected`：被拒绝或失败，已退回修复；
-- `pending`：尚未补齐。
-
-只有六项**全部**为 `approved` 时，页面才显示绿色「可以进入Sprint评审」。任意一项为 `rejected` 或 `pending` 都显示红色「未达到DoD」；**被拒绝的证据不会被其他齐备证据放过**，布尔 `False` 同样不通过。
-
-判定逻辑集中在 `dod_gate.py`，状态由证据计算得出，页面没有任何写死的绿色。
-
-六项必要证据依次为：用户故事、Sprint任务、AI功能分支、Git提交、自动化测试、人工审查。
-
-## 证据链
-
-完整链路按固定八段展示，页面直接读取顶层真实数据，不使用写死的占位数组：
+## 代码目录
 
 ```text
-用户故事 → Sprint任务 → AI功能分支 → Git提交
-→ 自动化测试 → 人工审查 → DoD门禁 → 可以评审
+app.py                   启动入口
+aimanager/__init__.py    应用工厂与模块装配
+aimanager/auth/          登录与退出
+aimanager/tasks/         任务页面、校验、状态服务
+aimanager/evidence/      历史交付记录回归模块
+aimanager/models.py      用户、项目、项目成员、任务和状态历史
+aimanager/permissions.py 项目和任务权限
+aimanager/seed.py        本地演示身份和项目初始化
+migrations/              数据库结构迁移
+templates/               页面模板
+static/                  样式与轻量脚本
+tests/                   自动化测试
 ```
 
-每段都带三态标记（已通过 / 已拒绝 / 待补证）。`rejected` 与 `pending` 的段会同时出现在页面的“缺口”提示中。
-
-## 目录结构
-
-```text
-app.py                   Flask应用、路由与服务端权限校验
-permissions.py           四岗位定义与权限判断
-dod_gate.py              三态归一化、DoD计算、八段证据链构建
-data/evidence.json       顶层真实证据（六项 + 分支/提交/审查记录）
-templates/index.html     交付舱页面（岗位内容 + 状态面板 + 证据链）
-templates/403.html       统一403页面
-static/style.css         页面样式
-static/app.js            轻量交互
-tests/                   51项自动化测试
-requirements.txt         依赖清单
-README.md                本文件
-```
-
-## Git 流程与分支策略
-
-- 基础提交：`main` 上的 `36e3778 chore: initialize sprint evidence cockpit`；
-- 唯一功能分支：`feat/sprint-evidence-cockpit`；
-- 功能提交：`c7e0fb1`、`ffc2646`（首次候选）；
-- 二次修复提交：`2b88da8`（DoD三态与顶层证据链）、`43405dc`（证据记录）；
-- 审查后补充提交：`c443063`（仅测试解耦）、`9b802bd`（人工审查 approved）；
-- 合并提交：`0a82780`，使用 `--no-ff`，**人工审查结论先于 main 合并提交产生**。
-
-门禁要求：候选分支必须先交本轮 DRI（杨濠宇）完成人工审查，收到“允许合并”后才能合并 `main`；人工审查不得晚于 `main` 合并。完整分支图见交付证据 `../21组_证据/Git记录/01_Git分支图_TC11.txt`（相对本仓库）。
-
-## 范围与真实性边界
-
-本轮范围仅 U6。**不包含**注册、真实登录、数据库、任务 CRUD、消息通知、多项目管理、云端部署和真实大模型产品接口。
-
-- `data/evidence.json` 中的提交号、测试结果与审查结论均为真实产生；未产生的证据保持 `pending`，不提前填绿。
-
-## 常见问题
-
-**页面一直是红色？**
-检查 `data/evidence.json` 六项证据是否全部为 `approved`；任意一项 `pending`/`rejected` 都会保持红色，这是预期行为。
-
-**访问 `/quality` 报 403？**
-说明当前 `role` 不是 `quality`。完整质量详情仅对本轮 DRI 开放，这是服务端强制校验的结果。
-
-**测试报缓存目录权限错误？**
-使用 `py -m pytest tests -q -p no:cacheprovider` 跳过 pytest 缓存。
+历史交付数据仍保留在 `data/evidence.json`，用于验证权限隔离和三态完成门禁；它不参与当前任务统计，也不出现在产品主导航中。

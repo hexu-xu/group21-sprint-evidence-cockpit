@@ -1,0 +1,18 @@
+{% extends "base.html" %}
+{% set active_page = 'tasks' %}
+{% set project = task.project %}
+{% block title %}{{ task.title }} · 爱管理{% endblock %}
+{% block breadcrumb %}任务详情{% endblock %}
+{% block content %}
+  <a class="back-link" href="{{ url_for('tasks.list_tasks', project_id=task.project_id, status=task.status) }}">返回任务看板</a>
+  <section class="detail-heading"><div><div class="eyebrow">{{ task.project.name }} <span class="eyebrow-divider">/</span> 任务 #{{ task.id }}</div><h1>{{ task.title }}</h1><span class="status-pill {{ task.status }}">{{ {'todo':'待完成','in_progress':'进行中','done':'已完成'}[task.status] }}</span></div></section>
+  <div class="detail-grid">
+    <section class="detail-card"><h2>任务描述</h2><p class="task-description">{{ task.description }}</p></section>
+    <aside class="detail-side">
+      <section class="detail-card"><h2>任务信息</h2><dl><div><dt>所属模块</dt><dd>{{ task.module_name }}</dd></div><div><dt>负责人</dt><dd><span class="avatar avatar-sm">{{ task.assignee.username[:1] | upper }}</span>{{ task.assignee.username }}</dd></div><div><dt>优先级</dt><dd><span class="priority-badge {{ task.priority }}">{{ {'low':'低','medium':'中','high':'高'}[task.priority] }}</span></dd></div><div><dt>截止时间</dt><dd>{{ task.due_date }}</dd></div>{% if task.completed_at %}<div><dt>完成时间</dt><dd>{{ task.completed_at | local_datetime }}</dd></div>{% endif %}<div><dt>创建人</dt><dd>{{ task.creator.username }}</dd></div></dl></section>
+      {% if can_manage %}<section class="detail-card"><h2>调整所属模块</h2><p class="form-intro">同一模块的任务会在故事地图中排成一行。</p><form method="post" action="{{ url_for('tasks.update_module', task_id=task.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><div class="field"><label for="module_name">模块名称</label><input id="module_name" name="module_name" maxlength="60" required list="existing-modules" value="{{ task.module_name }}"><datalist id="existing-modules">{% for module in existing_modules %}<option value="{{ module }}">{% endfor %}</datalist></div><button type="submit" class="button button-secondary button-full">保存模块</button></form></section>{% endif %}
+      {% if can_update %}<section class="detail-card"><h2>更新任务状态</h2><p class="form-intro">状态变化会同步到团队看板。</p><form method="post" action="{{ url_for('tasks.update_status', task_id=task.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><div class="field"><label for="status">当前进度</label><select id="status" name="status">{% for value, label in [('todo','待完成'),('in_progress','进行中'),('done','已完成')] %}<option value="{{ value }}" {% if task.status == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div><button type="submit" class="button button-primary button-full">保存状态</button></form></section>{% endif %}
+      {% if can_manage %}<section class="detail-card danger-card"><h2>删除任务</h2><p>删除后，任务及状态记录会从看板中移除。</p><a class="button button-danger-outline button-full" href="{{ url_for('tasks.delete_task_route', task_id=task.id) }}">删除此任务</a></section>{% endif %}
+    </aside>
+  </div>
+{% endblock %}

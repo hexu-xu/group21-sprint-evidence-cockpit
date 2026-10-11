@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% set active_page = 'new' %}
+{% set can_manage = true %}
+{% block title %}新建任务 · 爱管理{% endblock %}
+{% block breadcrumb %}新建任务{% endblock %}
+{% block content %}
+  <section class="page-heading"><div><div class="eyebrow">{{ project.name }} <span class="eyebrow-divider">/</span> 任务管理</div><h1>新建任务</h1><p>写清目标、截止时间和负责人，帮助团队顺利推进。</p></div></section>
+  <div class="form-layout">
+    <section class="form-card">
+      <div class="form-card-heading"><span class="form-step">01</span><div><h2>任务信息</h2><p>带 * 的项目为必填。</p></div></div>
+      <form method="post" class="task-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="project_id" value="{{ project.id }}">
+        <div class="field"><label for="module_name">所属模块 <em>*</em></label><input id="module_name" name="module_name" maxlength="60" required list="existing-modules" placeholder="例如：用户与权限" value="{{ request.form.get('module_name', '') }}"><datalist id="existing-modules">{% for module in existing_modules %}<option value="{{ module }}">{% endfor %}</datalist><small>同名模块的任务会汇总在故事地图的同一行。</small></div>
+        <div class="field"><label for="title">任务标题 <em>*</em></label><input id="title" name="title" maxlength="120" required placeholder="例如：完成首页交互设计" value="{{ request.form.get('title', '') }}"></div>
+        <div class="field"><label for="description">任务描述 <em>*</em></label><textarea id="description" name="description" maxlength="2000" required placeholder="说明任务内容和预期结果">{{ request.form.get('description', '') }}</textarea></div>
+        <div class="field-row">
+          <div class="field"><label for="priority">优先级 <em>*</em></label><select id="priority" name="priority" required><option value="">请选择优先级</option>{% for value, label in [('low','低'),('medium','中'),('high','高')] %}<option value="{{ value }}" {% if request.form.get('priority') == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></div>
+          <div class="field"><label for="due_date">截止日期 <em>*</em></label><input id="due_date" name="due_date" type="date" required value="{{ request.form.get('due_date', '') }}"></div>
+        </div>
+        <div class="field"><label for="assignee_id">负责人 <em>*</em></label><select id="assignee_id" name="assignee_id" required><option value="">请选择项目成员</option>{% for member in members %}<option value="{{ member.id }}" {% if request.form.get('assignee_id') == member.id|string %}selected{% endif %}>{{ member.username }}</option>{% endfor %}</select><small>只能分配给当前项目的成员。</small></div>
+        <div class="form-actions"><a class="button button-secondary" href="{{ url_for('tasks.list_tasks', project_id=project.id) }}">取消</a><button type="submit" class="button button-primary">创建任务</button></div>
+      </form>
+    </section>
+    <aside class="form-aside"><span class="aside-number">01 / 03</span><h3>让任务更容易执行</h3><p>先确定模块，再写清任务内容与截止时间。创建后，任务会立即出现在故事地图和负责人的个人任务中。</p></aside>
+  </div>
+{% endblock %}

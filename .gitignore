@@ -1,5 +1,10 @@
 __pycache__/
 .pytest_cache/
+.pytest-tmp/
 .venv/
 *.pyc
 pytest-cache-files-*/
+instance/
+*.db
+*.db-journal
+.env
