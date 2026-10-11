@@ -1,0 +1,86 @@
+"""Persistent users, projects, tasks and status history."""
+
+from datetime import datetime, timezone
+
+from flask_login import UserMixin
+from sqlalchemy import CheckConstraint, UniqueConstraint
+
+from .extensions import db
+
+
+def utc_now():
+    return datetime.now(timezone.utc)
+
+
+class User(UserMixin, db.Model):
+    __tablename__ = "users"
+
+    id = db.Column(db.Integer, primary_key=True)
+    username = db.Column(db.String(80), unique=True, nullable=False)
+    password_hash = db.Column(db.String(255), nullable=False)
+    platform_role = db.Column(db.String(30), nullable=False)
+    evidence_role = db.Column(db.String(30), nullable=False, default="product")
+    active = db.Column(db.Boolean, nullable=False, default=True)
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utc_now)
+
+    @property
+    def is_active(self):
+        return self.active
+
+
+class Project(db.Model):
+    __tablename__ = "projects"
+
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(120), nullable=False)
+    description = db.Column(db.Text, nullable=False, default="")
+    created_by_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utc_now)
+
+
+class ProjectMember(db.Model):
+    __tablename__ = "project_members"
+    __table_args__ = (UniqueConstraint("project_id", "user_id"),)
+
+    id = db.Column(db.Integer, primary_key=True)
+    project_id = db.Column(db.Integer, db.ForeignKey("projects.id"), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    project_role = db.Column(db.String(20), nullable=False)
+    user = db.relationship("User")
+
+
+class Task(db.Model):
+    __tablename__ = "tasks"
+    __table_args__ = (
+        CheckConstraint("status IN ('todo', 'in_progress', 'done')", name="task_status"),
+        CheckConstraint("priority IN ('low', 'medium', 'high')", name="task_priority"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    project_id = db.Column(db.Integer, db.ForeignKey("projects.id"), nullable=False)
+    module_name = db.Column(db.String(60), nullable=False, default="未分类")
+    title = db.Column(db.String(120), nullable=False)
+    description = db.Column(db.Text, nullable=False)
+    priority = db.Column(db.String(10), nullable=False)
+    due_date = db.Column(db.Date, nullable=False)
+    assignee_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    created_by_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    status = db.Column(db.String(20), nullable=False, default="todo")
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utc_now)
+    updated_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now)
+    completed_at = db.Column(db.DateTime(timezone=True), nullable=True)
+
+    assignee = db.relationship("User", foreign_keys=[assignee_id])
+    creator = db.relationship("User", foreign_keys=[created_by_id])
+    project = db.relationship("Project")
+
+
+class TaskStatusEvent(db.Model):
+    __tablename__ = "task_status_events"
+
+    id = db.Column(db.Integer, primary_key=True)
+    task_id = db.Column(db.Integer, db.ForeignKey("tasks.id"), nullable=False)
+    from_status = db.Column(db.String(20), nullable=True)
+    to_status = db.Column(db.String(20), nullable=False)
+    actor_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    changed_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utc_now)

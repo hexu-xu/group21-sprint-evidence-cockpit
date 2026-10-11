@@ -23,7 +23,7 @@ def test_complete_approved_evidence_is_reviewable(approved_evidence):
     result = evaluate_dod(approved_evidence)
     assert result["passed"] is True
     assert result["status"] == APPROVED
-    assert result["label"] == "可以进入Sprint评审"
+    assert result["label"] == "可以进入交付评审"
 
 
 @pytest.mark.parametrize("missing", REQUIRED_EVIDENCE)
@@ -94,7 +94,7 @@ def test_chain_reads_top_level_evidence_and_has_eight_segments(approved_evidence
     assert len(chain) == 8
     assert [item["name"] for item in chain] == [
         "用户故事",
-        "Sprint任务",
+        "开发任务",
         "AI功能分支",
         "Git提交",
         "自动化测试",

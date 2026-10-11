@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>登录 · 爱管理</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="login-body">
+  <main class="login-layout">
+    <section class="login-showcase" aria-label="产品介绍">
+      <div class="login-brand"><span class="brand-mark" aria-hidden="true">爱</span><strong>爱管理</strong></div>
+      <div class="showcase-content">
+        <span class="showcase-kicker">让协作清晰可见</span>
+        <h1>把每一项任务<br>推进到完成。</h1>
+        <p>集中安排任务、明确负责人、同步进度。团队知道下一步该做什么，管理者随时掌握工作状态。</p>
+        <div class="showcase-steps" aria-hidden="true">
+          <span>创建任务</span><i></i><span>分配成员</span><i></i><span>跟进进度</span>
+        </div>
+      </div>
+      <div class="showcase-footer">爱管理 · 团队任务协作</div>
+    </section>
+    <section class="login-panel">
+      <div class="login-form-wrap">
+        <span class="form-kicker">欢迎回来</span>
+        <h2>登录爱管理</h2>
+        <p class="form-intro">输入你的账号信息，继续管理团队任务。</p>
+        {% if current_user.is_authenticated %}
+          <div class="current-session">当前登录：<strong>{{ current_user.username }}</strong>。输入其他账号即可切换，或<a href="{{ url_for('tasks.list_tasks') }}">返回工作台</a>。</div>
+        {% endif %}
+        {% for category, message in get_flashed_messages(with_categories=true) %}
+          <div class="flash {{ category }}" role="alert">{{ message }}</div>
+        {% endfor %}
+        <form method="post" class="login-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <label for="username">用户名</label>
+          <input id="username" name="username" maxlength="80" required autocomplete="username" placeholder="请输入用户名" autofocus>
+          <label for="password">密码</label>
+          <input id="password" name="password" type="password" required autocomplete="current-password" placeholder="请输入密码">
+          <button type="submit" class="button button-primary button-full">登录工作台</button>
+        </form>
+      </div>
+      <p class="login-help">遇到登录问题，请联系项目管理员。</p>
+    </section>
+  </main>
+</body>
+</html>

@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block title %}爱管理{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="app-body">
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="主导航">
+      <a class="brand" href="{{ url_for('tasks.list_tasks') }}" aria-label="爱管理首页">
+        <span class="brand-mark" aria-hidden="true">爱</span>
+        <span><strong>爱管理</strong><small>TEAM WORKSPACE</small></span>
+      </a>
+      <div class="sidebar-group-label">工作空间</div>
+      <nav class="side-nav">
+        <a class="nav-item {% if active_page == 'tasks' %}is-active{% endif %}" href="{{ url_for('tasks.list_tasks') }}">
+          任务看板
+        </a>
+        {% if can_manage | default(false) %}
+        <a class="nav-item {% if active_page == 'new' %}is-active{% endif %}" href="{{ url_for('tasks.new_task', project_id=project.id) }}">
+          创建任务
+        </a>
+        {% endif %}
+      </nav>
+      <div class="sidebar-spacer"></div>
+      <div class="sidebar-account">
+        <span class="avatar">{{ current_user.username[:1] | upper }}</span>
+        <span class="account-copy"><strong>{{ current_user.username }}</strong><small>{% if current_user.platform_role == 'admin' %}管理员{% elif current_user.platform_role == 'read_only_admin' %}只读管理员{% elif can_manage | default(false) %}项目经理{% else %}团队成员{% endif %}</small></span>
+      </div>
+      <a class="switch-account" href="{{ url_for('auth.login') }}">切换账号</a>
+      <form method="post" action="{{ url_for('auth.logout') }}" class="logout-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit" class="logout-button">退出登录</button>
+      </form>
+    </aside>
+    <div class="app-main">
+      <header class="topbar">
+        <div class="breadcrumb"><span>工作空间</span><span aria-hidden="true">/</span><strong>{% block breadcrumb %}任务看板{% endblock %}</strong></div>
+        <div class="topbar-right">团队协作空间
+          <a class="mobile-switch" href="{{ url_for('auth.login') }}">切换账号</a>
+          <form method="post" action="{{ url_for('auth.logout') }}" class="mobile-logout"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit">退出</button></form>
+        </div>
+      </header>
+      <main class="page-content">
+        {% for category, message in get_flashed_messages(with_categories=true) %}
+          <div class="flash {{ category }}" role="status">{{ message }}</div>
+        {% endfor %}
+        {% block content %}{% endblock %}
+      </main>
+    </div>
+  </div>
+</body>
+</html>

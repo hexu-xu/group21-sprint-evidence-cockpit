@@ -1,4 +1,4 @@
-"""DoD门禁：根据证据的真实状态，判断本轮增量能否进入Sprint评审。
+"""DoD门禁：根据证据的真实状态，判断交付内容能否进入评审。
 
 设计原则：
 1. 证据状态统一为三态：approved（已通过）/ rejected（被拒绝或失败）/ pending（待补证）。
@@ -26,7 +26,7 @@ REQUIRED_EVIDENCE = (
 # 证据键到中文展示名的映射，页面和审查报告共用，保证名称一致。
 EVIDENCE_LABELS = {
     "story_confirmed": "用户故事",
-    "task_claimed": "Sprint任务",
+    "task_claimed": "开发任务",
     "ai_branch": "AI功能分支",
     "feature_commit": "Git提交",
     "tests_passed": "自动化测试",
@@ -104,9 +104,9 @@ def evaluate_dod(evidence):
     )
 
     if rejected:
-        overall, message = REJECTED, "存在被拒绝或失败证据，已退回修复，不能进入Sprint评审。"
+        overall, message = REJECTED, "存在被拒绝或失败证据，已退回修复，不能进入交付评审。"
     elif pending:
-        overall, message = PENDING, "证据不全，暂不能进入Sprint评审。"
+        overall, message = PENDING, "证据不全，暂不能进入交付评审。"
     else:
         overall, message = APPROVED, "证据链完整，已达到DoD。"
 
@@ -118,7 +118,7 @@ def evaluate_dod(evidence):
         "missing": rejected + pending,
         "rejected": rejected,
         "pending": pending,
-        "label": "可以进入Sprint评审" if passed else "未达到DoD",
+        "label": "可以进入交付评审" if passed else "未达到DoD",
         "message": message,
     }
 

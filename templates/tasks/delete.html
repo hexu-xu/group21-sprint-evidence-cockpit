@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% set active_page = 'tasks' %}
+{% set project = task.project %}
+{% set can_manage = true %}
+{% block title %}确认删除任务 · 爱管理{% endblock %}
+{% block breadcrumb %}删除任务{% endblock %}
+{% block content %}
+  <a class="back-link" href="{{ url_for('tasks.task_detail', task_id=task.id) }}">返回任务详情</a>
+  <section class="delete-panel" aria-labelledby="delete-title">
+    <span class="section-kicker">DELETE TASK</span>
+    <h1 id="delete-title">确认删除任务</h1>
+    <p>请核对以下任务。确认后，任务及其状态记录会被删除，无法在系统内恢复。</p>
+    <dl>
+      <div><dt>任务名称</dt><dd>{{ task.title }}</dd></div>
+      <div><dt>所属模块</dt><dd>{{ task.module_name }}</dd></div>
+      <div><dt>负责人</dt><dd>{{ task.assignee.username }}</dd></div>
+      <div><dt>截止时间</dt><dd>{{ task.due_date }}</dd></div>
+    </dl>
+    <form method="post" action="{{ url_for('tasks.delete_task_route', task_id=task.id) }}" class="delete-actions">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="confirm_task_id" value="{{ task.id }}">
+      <a class="button button-secondary" href="{{ url_for('tasks.task_detail', task_id=task.id) }}">取消</a>
+      <button class="button button-danger" type="submit">确认删除</button>
+    </form>
+  </section>
+{% endblock %}
