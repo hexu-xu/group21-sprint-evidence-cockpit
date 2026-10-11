@@ -5,8 +5,10 @@
 2. 只有6项必要证据全部为 approved 时，整体才是 approved，才允许显示绿色。
 3. rejected 与 pending 都属于“未达到DoD”，其中 rejected 表示已明确失败或被退回，
    绝不能因为其他证据齐全而被放过。
-4. 本模块只做判断，不修改证据文件，保证页面状态由真实证据计算而不是写死。
+4. 未识别状态与无效提交证据均按待补证处理；本模块不修改证据文件。
 """
+
+import re
 
 # 三态常量：全项目统一使用这三个值，避免出现“绿色写死”或字符串误判。
 APPROVED = "approved"
@@ -44,22 +46,24 @@ _PENDING_ALIASES = {
     "pending", "todo", "待定", "待审查", "待复审", "待确认", "待补证", "进行中",
 }
 
+_COMMIT_REFERENCE = re.compile(r"([0-9a-fA-F]{7,40})(?:\s+.+)?\Z")
+_PASSED_TEST_OUTPUT = re.compile(r"\d+ passed in \d+(?:\.\d+)?s\Z", re.IGNORECASE)
+
 # 三态对应的页面状态样式，避免模板里再做条件判断。
 _STATUS_CLASSES = {APPROVED: "pass", REJECTED: "fail", PENDING: "pending"}
 _STATUS_LABELS = {APPROVED: "已通过", REJECTED: "已拒绝", PENDING: "待补证"}
 
 
-def normalize_status(value):
-    """把任意证据值归一化为 approved / rejected / pending 三态。
+def _valid_commit_reference(value):
+    """提交证据需以 7～40 位十六进制哈希开头，可带提交说明。"""
+    if not isinstance(value, str):
+        return False
+    match = _COMMIT_REFERENCE.fullmatch(value.strip())
+    return bool(match and len(set(match.group(1).lower())) > 1)
 
-    支持三种输入形式：
-    - 布尔值：True -> approved；False -> pending（尚未完成，不能通过）。
-    - 字典：读取其中的 ``status`` 字段，便于证据文件携带说明文字。
-    - 文本：命中别名按别名判断；以“待”开头视为 pending；
-      其余非空文本（如真实提交号、测试命令）视为已提供的真实证据。
-    """
-    if isinstance(value, dict):
-        return normalize_status(value.get("status"))
+
+def _status_label(value):
+    """只接受明确列出的状态值，未知值一律保持待补证。"""
     if value is True:
         return APPROVED
     if value is False or value is None:
@@ -74,7 +78,25 @@ def normalize_status(value):
             return REJECTED
         if text in _PENDING_ALIASES or value.strip().startswith("待"):
             return PENDING
-        return APPROVED
+        return PENDING
+    return PENDING
+
+
+def normalize_status(value):
+    """把状态或兼容的原始证据值归一化为三态。
+
+    字典中的 status 必须是明确状态，不能把任意非空文本当成通过。
+    旧格式的裸提交哈希与 pytest 成功摘要仍可作为原始证据。
+    """
+    if isinstance(value, dict):
+        return _status_label(value.get("status"))
+    status = _status_label(value)
+    if status != PENDING:
+        return status
+    if isinstance(value, str):
+        text = value.strip()
+        if _valid_commit_reference(text) or _PASSED_TEST_OUTPUT.fullmatch(text):
+            return APPROVED
     return PENDING
 
 
@@ -97,6 +119,10 @@ def evaluate_dod(evidence):
     只要出现 rejected 或 pending，``passed`` 必须为 False。
     """
     statuses = {key: normalize_status(evidence.get(key)) for key in REQUIRED_EVIDENCE}
+    commit = evidence.get("feature_commit")
+    commit_value = commit.get("value") if isinstance(commit, dict) else commit
+    if statuses["feature_commit"] == APPROVED and not _valid_commit_reference(commit_value):
+        statuses["feature_commit"] = PENDING
     rejected = [key for key, status in statuses.items() if status == REJECTED]
     pending = [key for key, status in statuses.items() if status == PENDING]
     passed = not rejected and not pending and all(

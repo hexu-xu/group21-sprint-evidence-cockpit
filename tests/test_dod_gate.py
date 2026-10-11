@@ -16,7 +16,9 @@ from dod_gate import (
 @pytest.fixture
 def approved_evidence():
     """六项必要证据全部为approved的最小证据集。"""
-    return {key: {"status": APPROVED, "value": f"{key} 真实证据"} for key in REQUIRED_EVIDENCE}
+    evidence = {key: {"status": APPROVED, "value": f"{key} 真实证据"} for key in REQUIRED_EVIDENCE}
+    evidence["feature_commit"]["value"] = "2b88da8 fix: enforce three-state DoD gate"
+    return evidence
 
 
 def test_complete_approved_evidence_is_reviewable(approved_evidence):
@@ -57,9 +59,10 @@ def test_boolean_false_cannot_pass(approved_evidence):
     assert result["statuses"]["tests_passed"] == PENDING
 
 
-def test_boolean_true_counts_as_approved():
+def test_boolean_true_without_commit_hash_cannot_pass():
     result = evaluate_dod({key: True for key in REQUIRED_EVIDENCE})
-    assert result["passed"] is True
+    assert result["passed"] is False
+    assert result["statuses"]["feature_commit"] == PENDING
 
 
 @pytest.mark.parametrize(
@@ -78,11 +81,39 @@ def test_boolean_true_counts_as_approved():
         ("待杨濠宇复审", PENDING),
         ("c7e0fb1", APPROVED),
         ("15 passed in 0.19s", APPROVED),
+        ("reviewed", PENDING),
+        ("unknown_status", PENDING),
+        ("已处理", PENDING),
         ({"status": "rejected", "value": "退回"}, REJECTED),
     ],
 )
 def test_normalize_status_three_state(value, expected):
     assert normalize_status(value) == expected
+
+
+@pytest.mark.parametrize("unknown", ["reviewed", "unknown_status", "已处理", {"status": "reviewed", "value": "说明"}])
+def test_unknown_status_blocks_review(approved_evidence, unknown):
+    approved_evidence["human_review"] = unknown
+    result = evaluate_dod(approved_evidence)
+    assert result["statuses"]["human_review"] == PENDING
+    assert result["passed"] is False
+    assert result["label"] == "未达到DoD"
+
+
+@pytest.mark.parametrize("value", [None, "", "  ", "待实际候选提交", "TODO", "placeholder", "abcdef", "0000000"])
+def test_blank_or_placeholder_commit_blocks_review(approved_evidence, value):
+    approved_evidence["feature_commit"] = {"status": APPROVED, "value": value}
+    result = evaluate_dod(approved_evidence)
+    assert result["statuses"]["feature_commit"] == PENDING
+    assert result["passed"] is False
+    assert "feature_commit" in result["missing"]
+
+
+def test_rejected_commit_remains_rejected_even_without_hash(approved_evidence):
+    approved_evidence["feature_commit"] = {"status": REJECTED, "value": ""}
+    result = evaluate_dod(approved_evidence)
+    assert result["statuses"]["feature_commit"] == REJECTED
+    assert result["status"] == REJECTED
 
 
 def test_chain_reads_top_level_evidence_and_has_eight_segments(approved_evidence):
