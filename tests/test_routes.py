@@ -43,6 +43,7 @@ def login(client, username):
 
 def complete_evidence(review=APPROVED):
     evidence = {key: {"status": APPROVED, "value": f"{key} 真实证据"} for key in REQUIRED_EVIDENCE}
+    evidence["feature_commit"]["value"] = "2b88da8 fix: enforce three-state DoD gate"
     evidence["human_review"] = {"status": review, "value": "人工审查结论"}
     return evidence
 
@@ -95,3 +96,22 @@ def test_dod_green_and_rejected_states(app, client, review, expected):
     body = client.get("/quality").get_data(as_text=True)
     assert expected in body
     assert ("未达到DoD" in body) == (review == REJECTED)
+
+
+@pytest.mark.parametrize(
+    "key,evidence",
+    [
+        ("human_review", {"status": "reviewed", "value": "状态未定义"}),
+        ("feature_commit", {"status": APPROVED, "value": "待实际候选提交"}),
+    ],
+)
+def test_quality_page_blocks_unknown_status_and_placeholder_commit(app, client, key, evidence):
+    data = complete_evidence()
+    data[key] = evidence
+    app.config["EVIDENCE_DATA"] = data
+    login(client, "admin")
+
+    body = client.get("/quality").get_data(as_text=True)
+    assert "未达到DoD" in body
+    assert "可以进入交付评审" not in body
+    assert "待补证" in body
