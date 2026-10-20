@@ -62,6 +62,16 @@ python -m pytest tests -q -p no:cacheprovider
 
 GitHub Actions 配置位于 `.github/workflows/tests.yml`，在推送或拉取请求时运行同一测试命令。工作流是否在线通过，以实际 GitHub 运行记录为准；本地测试通过不等于 CI 已通过。
 
+如需用真实浏览器核对主流程和权限异常流程，在**一次性演示数据库**上启动应用后执行：
+
+```powershell
+python -m pip install -r requirements-browser.txt
+python -m playwright install chromium
+python tests/browser_journeys.py
+```
+
+脚本会创建两项演示任务，结果和截图写入已忽略的 `instance/browser-evidence/`。默认访问 `http://127.0.0.1:5000`、项目 ID 1；可通过 `DEMO_BASE_URL`、`DEMO_PROJECT_ID` 调整。`DEMO_PASSWORD` 必须与初始化演示账号时一致。如使用系统已安装的浏览器，可用 `PLAYWRIGHT_BROWSER_EXECUTABLE` 指定可执行文件。浏览器脚本未纳入 CI；最终版本仍须人工查看截图和复核结果。
+
 更详细的操作与权限说明见 [用户手册](docs/USER_GUIDE.md)，本轮候选变更及已知限制见 [发布说明](docs/RELEASE_NOTES.md)。
 
 ## 代码目录
