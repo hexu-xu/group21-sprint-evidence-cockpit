@@ -20,7 +20,7 @@
 ```powershell
 py -m venv .venv
 .\.venv\Scripts\Activate.ps1
-python -m pip install -r requirements.txt
+python -m pip install -r requirements.lock
 $env:DEMO_PASSWORD = "请换成自己设置的至少8位密码"
 python -m flask --app app db upgrade
 python -m flask --app app seed-demo
@@ -62,10 +62,12 @@ python -m pytest tests -q -p no:cacheprovider
 
 GitHub Actions 配置位于 `.github/workflows/tests.yml`，在推送或拉取请求时运行同一测试命令。工作流是否在线通过，以实际 GitHub 运行记录为准；本地测试通过不等于 CI 已通过。
 
+`requirements.lock` 固定 Python 3.11 环境下的直接与间接依赖版本，安装和 CI 均使用它；`requirements.txt` 保留允许的版本范围，供后续依赖升级使用。可选的浏览器验证使用 `requirements-browser.lock`。依赖升级后须重新生成锁文件、运行全量测试，并取得新的审查结论。
+
 如需用真实浏览器核对主流程和权限异常流程，在**一次性演示数据库**上启动应用后执行：
 
 ```powershell
-python -m pip install -r requirements-browser.txt
+python -m pip install -r requirements-browser.lock
 python -m playwright install chromium
 python tests/browser_journeys.py
 ```
