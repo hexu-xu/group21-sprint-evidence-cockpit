@@ -18,6 +18,11 @@
         <a class="nav-item {% if active_page == 'tasks' %}is-active{% endif %}" href="{{ url_for('tasks.list_tasks') }}">
           任务看板
         </a>
+        {% if project is defined and project and (can_manage | default(false) or current_user.platform_role == 'read_only_admin') %}
+        <a class="nav-item {% if active_page == 'overview' %}is-active{% endif %}" href="{{ url_for('tasks.project_overview', project_id=project.id) }}">
+          项目概览
+        </a>
+        {% endif %}
         {% if can_manage | default(false) %}
         <a class="nav-item {% if active_page == 'new' %}is-active{% endif %}" href="{{ url_for('tasks.new_task', project_id=project.id) }}">
           创建任务

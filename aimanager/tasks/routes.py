@@ -13,6 +13,22 @@ from . import bp
 from .service import TaskInputError, change_status, create_task, delete_task
 
 
+def task_statistics(tasks, today):
+    """Count only tasks already authorized for the current page."""
+    counts = {status: 0 for status in ("todo", "in_progress", "done")}
+    for task in tasks:
+        counts[task.status] += 1
+    total = len(tasks)
+    return {
+        **counts,
+        "total": total,
+        "overdue": sum(task.due_date < today and task.status != "done" for task in tasks),
+        "completion_rate": round(counts["done"] * 100 / total) if total else 0,
+        "next_due": min((task.due_date for task in tasks
+                         if task.status != "done" and task.due_date >= today), default=None),
+    }
+
+
 def selected_project():
     """Choose a visible project; never accept an unauthorized project id."""
     raw_id = request.values.get("project_id")
@@ -53,15 +69,35 @@ def list_tasks():
     modules = OrderedDict()
     for task in sorted(tasks, key=lambda item: (item.module_name.casefold(), item.id)):
         modules.setdefault(task.module_name, {status: [] for status in board})[task.status].append(task)
-    stats = {
-        "total": len(tasks),
-        "done": len(board["done"]),
-        "in_progress": len(board["in_progress"]),
-        "overdue": sum(task.due_date < date.today() and task.status != "done" for task in tasks),
-    }
+    stats = task_statistics(tasks, date.today())
+    full_project_view = can_manage or current_user.platform_role == "read_only_admin"
     return render_template("tasks/list.html", project=project, tasks=tasks,
                            can_manage=can_manage, board=board, modules=modules,
-                           active_status=active_status, stats=stats, today=date.today())
+                           active_status=active_status, stats=stats, today=date.today(),
+                           full_project_view=full_project_view)
+
+
+@bp.get("/overview")
+@login_required
+def project_overview():
+    """Show the whole-project summary to managers and read-only observers."""
+    project = selected_project()
+    if project is None:
+        abort(404)
+    can_manage = can_manage_tasks(current_user, project.id)
+    if not can_manage and current_user.platform_role != "read_only_admin":
+        abort(403)
+    tasks = db.session.scalars(
+        db.select(Task).where(Task.project_id == project.id).order_by(Task.id)
+    ).all()
+    stats = task_statistics(tasks, date.today())
+    distribution = [
+        {"label": label, "count": stats[status],
+         "percent": round(stats[status] * 100 / stats["total"]) if stats["total"] else 0}
+        for status, label in (("todo", "待完成"), ("in_progress", "进行中"), ("done", "已完成"))
+    ]
+    return render_template("tasks/overview.html", project=project,
+                           can_manage=can_manage, stats=stats, distribution=distribution)
 
 
 @bp.route("/new", methods=["GET", "POST"])

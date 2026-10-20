@@ -14,9 +14,9 @@
     </section>
 
     <section class="metric-grid" aria-label="任务统计">
-      <div class="metric-card"><span>任务总数</span><strong>{{ stats.total }}</strong><small>当前项目</small></div>
+      <div class="metric-card"><span>任务总数</span><strong>{{ stats.total }}</strong><small>{{ '当前项目' if full_project_view else '分配给我的任务' }}</small></div>
       <div class="metric-card"><span>进行中</span><strong>{{ stats.in_progress }}</strong><small>正在推进</small></div>
-      <div class="metric-card"><span>已完成</span><strong>{{ stats.done }}</strong><small>完成率 {{ ((stats.done / stats.total) * 100) | round | int if stats.total else 0 }}%</small></div>
+      <div class="metric-card"><span>已完成</span><strong>{{ stats.done }}</strong><small>完成率 {{ stats.completion_rate }}%</small></div>
       <div class="metric-card"><span>已逾期</span><strong>{{ stats.overdue }}</strong><small>需要关注</small></div>
     </section>
 

@@ -297,3 +297,90 @@ def test_product_pages_do_not_show_coursework_terms(client):
         assert "Sprint" not in page
         assert "实验" not in page
         assert "作业" not in page
+
+
+def test_overview_tracks_project_counts_and_status_changes(app, client):
+    login(client, "manager")
+    empty = client.get("/tasks/overview?project_id=1")
+    assert empty.status_code == 200
+    assert "暂无任务" in empty.get_data(as_text=True)
+    assert "当前项目还没有任务" in empty.get_data(as_text=True)
+
+    for title in ("任务甲", "任务乙", "任务丙"):
+        data = form(app)
+        data["title"] = title
+        assert client.post("/tasks/new", data=data).status_code == 302
+    client.post("/tasks/2/status", data={"status": "in_progress"})
+    client.post("/tasks/3/status", data={"status": "done"})
+
+    body = client.get("/tasks/overview?project_id=1").get_data(as_text=True)
+    assert "任务总数</span><strong>3</strong>" in body
+    assert "已完成</span><strong>1</strong>" in body
+    assert "进行中</span><strong>1</strong>" in body
+    assert "待完成</span><strong>1</strong>" in body
+    assert body.count("1 项 · 33%") == 3
+    assert "完成率 33%" in body
+
+    client.post("/tasks/1/status", data={"status": "done"})
+    changed = client.get("/tasks/overview?project_id=1").get_data(as_text=True)
+    assert "已完成</span><strong>2</strong>" in changed
+    assert "完成率 67%" in changed
+
+
+def test_overview_project_and_role_boundaries(app, client):
+    login(client, "manager")
+    client.post("/tasks/new", data=form(app, "member"))
+    with app.app_context():
+        admin = db.session.scalar(db.select(User).where(User.username == "admin"))
+        other = Project(name="私有项目", created_by_id=admin.id)
+        db.session.add(other)
+        db.session.flush()
+        member2 = db.session.scalar(db.select(User).where(User.username == "member2"))
+        db.session.add(Task(
+            project_id=other.id, module_name="其他", title="跨项目机密任务",
+            description="不得出现在首个项目概览", priority="medium",
+            due_date=date(2026, 10, 20), assignee_id=member2.id,
+            created_by_id=admin.id, status="todo",
+        ))
+        db.session.commit()
+        other_id = other.id
+    body = client.get("/tasks/overview?project_id=1").get_data(as_text=True)
+    assert "任务总数</span><strong>1</strong>" in body
+    assert "跨项目机密任务" not in body
+    assert client.get(f"/tasks/overview?project_id={other_id}").status_code == 403
+
+    logout(client)
+    login(client, "member")
+    assert client.get("/tasks/overview?project_id=1").status_code == 403
+    own_board = client.get("/tasks?project_id=1").get_data(as_text=True)
+    assert "分配给我的任务" in own_board
+    assert "项目概览" not in own_board
+    logout(client)
+    login(client, "observer")
+    assert client.get("/tasks/overview?project_id=1").status_code == 200
+    assert client.post("/tasks/new", data=form(app)).status_code == 403
+    logout(client)
+    login(client, "outsider")
+    assert client.get("/tasks/overview?project_id=1").status_code == 403
+
+
+def test_end_to_end_main_and_permission_journeys(app, client):
+    assert login(client, "manager").status_code == 302
+    assert client.post("/tasks/new", data=form(app, "member")).status_code == 302
+    assert "任务总数</span><strong>1</strong>" in client.get(
+        "/tasks/overview?project_id=1"
+    ).get_data(as_text=True)
+    logout(client)
+    login(client, "member")
+    assert "实现任务协作" in client.get("/tasks?project_id=1").get_data(as_text=True)
+    assert client.post("/tasks/1/status", data={"status": "done"}).status_code == 302
+    assert client.get("/tasks/overview?project_id=1").status_code == 403
+    logout(client)
+    login(client, "manager")
+    final = client.get("/tasks/overview?project_id=1").get_data(as_text=True)
+    assert "已完成</span><strong>1</strong>" in final
+    assert "完成率 100%" in final
+    logout(client)
+    login(client, "member2")
+    assert client.get("/tasks/1").status_code == 403
+    assert client.post("/tasks/1/status", data={"status": "todo"}).status_code == 403
