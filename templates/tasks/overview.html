@@ -1,0 +1,57 @@
+{% extends "base.html" %}
+{% set active_page = 'overview' %}
+{% block title %}项目概览 · 爱管理{% endblock %}
+{% block breadcrumb %}项目概览{% endblock %}
+{% block content %}
+  <section class="page-heading">
+    <div>
+      <div class="eyebrow">{{ project.name }} <span class="eyebrow-divider">/</span> 项目概览</div>
+      <h1>项目整体概览</h1>
+      <p>{{ project.description or '查看当前项目的任务完成情况与待关注事项。' }}</p>
+    </div>
+    <a class="button button-secondary" href="{{ url_for('tasks.list_tasks', project_id=project.id) }}">查看任务看板</a>
+  </section>
+
+  <section class="metric-grid" aria-label="当前项目任务统计">
+    <div class="metric-card"><span>任务总数</span><strong>{{ stats.total }}</strong><small>仅统计当前项目</small></div>
+    <div class="metric-card"><span>已完成</span><strong>{{ stats.done }}</strong><small>完成率 {{ stats.completion_rate }}%</small></div>
+    <div class="metric-card"><span>进行中</span><strong>{{ stats.in_progress }}</strong><small>正在推进</small></div>
+    <div class="metric-card"><span>待完成</span><strong>{{ stats.todo }}</strong><small>尚未开始</small></div>
+  </section>
+
+  <div class="overview-grid">
+    <section class="overview-panel" aria-labelledby="distribution-title">
+      <h2 id="distribution-title">任务状态分布</h2>
+      <p class="overview-intro">数量和占比均以当前项目的任务总数为分母。</p>
+      {% for item in distribution %}
+        <div class="distribution-row">
+          <div class="distribution-label"><span>{{ item.label }}</span><strong>{{ item.count }} 项 · {{ item.percent }}%</strong></div>
+          <div class="distribution-track" role="img" aria-label="{{ item.label }} {{ item.count }} 项，占 {{ item.percent }}%">
+            <div class="distribution-fill distribution-{{ loop.index }}" style="width: {{ item.percent }}%"></div>
+          </div>
+        </div>
+      {% endfor %}
+      {% if not stats.total %}<p class="overview-empty">当前项目还没有任务，状态占比按 0% 显示。</p>{% endif %}
+    </section>
+
+    <section class="overview-panel" aria-labelledby="progress-title">
+      <h2 id="progress-title">进度提示</h2>
+      {% if not stats.total %}
+        <p class="progress-state">暂无任务</p>
+        <p class="overview-intro">创建任务后，这里会显示完成率与截止日期提示。</p>
+      {% elif stats.overdue %}
+        <p class="progress-state attention">{{ stats.overdue }} 项任务已逾期</p>
+        <p class="overview-intro">逾期数量只统计尚未完成且截止日期早于今天的任务。</p>
+      {% else %}
+        <p class="progress-state">当前没有逾期任务</p>
+        <p class="overview-intro">请结合任务看板核对实际进度。</p>
+      {% endif %}
+      <dl class="overview-facts">
+        <div><dt>完成率</dt><dd>{{ stats.completion_rate }}%</dd></div>
+        <div><dt>未完成任务</dt><dd>{{ stats.todo + stats.in_progress }} 项</dd></div>
+        <div><dt>下一截止日期</dt><dd>{{ stats.next_due.strftime('%Y-%m-%d') if stats.next_due else '暂无' }}</dd></div>
+      </dl>
+      <p class="overview-note">进度提示根据任务状态与截止日期生成；项目是否按整体计划推进，还需要结合排期判断。</p>
+    </section>
+  </div>
+{% endblock %}
