@@ -1,14 +1,14 @@
 """Task creation, assignment, visibility and status authorization."""
 
 import re
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 from werkzeug.security import generate_password_hash
 
 from app import create_app
 from aimanager.extensions import db
-from aimanager.models import Project, ProjectMember, Task, TaskStatusEvent, User
+from aimanager.models import Project, ProjectMember, ProjectProgressCheckpoint, Task, TaskStatusEvent, User
 
 
 @pytest.fixture
@@ -384,3 +384,90 @@ def test_end_to_end_main_and_permission_journeys(app, client):
     login(client, "member2")
     assert client.get("/tasks/1").status_code == 403
     assert client.post("/tasks/1/status", data={"status": "todo"}).status_code == 403
+
+
+def test_progress_checkpoints_compare_recorded_stories_without_mixing_task_counts(app, client):
+    login(client, "manager")
+    client.post("/tasks/new", data=form(app))
+    past = (date.today() - timedelta(days=2)).isoformat()
+    future = (date.today() + timedelta(days=4)).isoformat()
+    assert client.post("/tasks/overview/checkpoints", data={
+        "project_id": "1", "target_date": past, "planned_count": "7",
+        "actual_count": "7", "actual_evidence": "已验收故事清单及提交号",
+    }).status_code == 302
+    assert client.post("/tasks/overview/checkpoints", data={
+        "project_id": "1", "target_date": future, "planned_count": "9",
+        "actual_count": "", "actual_evidence": "",
+    }).status_code == 302
+    body = client.get("/tasks/overview?project_id=1").get_data(as_text=True)
+    assert "达到检查点目标" in body
+    assert "下一检查点" in body and "计划累计 9 项" in body
+    assert "计划与实际均为累计 7 项" in body
+    assert "任务总数</span><strong>1</strong>" in body
+    assert "已验收故事清单及提交号" in body
+
+    with app.app_context():
+        checkpoint = db.session.scalar(db.select(ProjectProgressCheckpoint)
+                                       .where(ProjectProgressCheckpoint.target_date == date.fromisoformat(past)))
+        checkpoint_id = checkpoint.id
+    assert client.post("/tasks/overview/checkpoints", data={
+        "project_id": "1", "checkpoint_id": str(checkpoint_id),
+        "target_date": past, "planned_count": "7", "actual_count": "6",
+        "actual_evidence": "独立验收报告",
+    }).status_code == 302
+    lagging = client.get("/tasks/overview?project_id=1").get_data(as_text=True)
+    assert "落后 1 项" in lagging and "实际累计 6 项" in lagging
+
+
+def test_progress_checkpoints_reject_unsupported_actuals_and_inconsistent_plan(app, client):
+    login(client, "manager")
+    past = (date.today() - timedelta(days=2)).isoformat()
+    future = (date.today() + timedelta(days=4)).isoformat()
+    endpoint = "/tasks/overview/checkpoints"
+    assert "证据位置" in client.post(endpoint, data={
+        "project_id": "1", "target_date": past, "planned_count": "7",
+        "actual_count": "7", "actual_evidence": "",
+    }, follow_redirects=True).get_data(as_text=True)
+    assert "未来检查点不能提前填写实际结果" in client.post(endpoint, data={
+        "project_id": "1", "target_date": future, "planned_count": "9",
+        "actual_count": "9", "actual_evidence": "尚未发生",
+    }, follow_redirects=True).get_data(as_text=True)
+    assert client.post(endpoint, data={
+        "project_id": "1", "target_date": past, "planned_count": "7",
+        "actual_count": "7", "actual_evidence": "验收报告",
+    }).status_code == 302
+    assert "累计计划数不能低于" in client.post(endpoint, data={
+        "project_id": "1", "target_date": future, "planned_count": "6",
+        "actual_count": "", "actual_evidence": "",
+    }, follow_redirects=True).get_data(as_text=True)
+    with app.app_context():
+        assert db.session.scalar(db.select(db.func.count(ProjectProgressCheckpoint.id))) == 1
+
+
+def test_progress_checkpoints_are_project_scoped_and_manager_only(app, client):
+    login(client, "manager")
+    past = (date.today() - timedelta(days=2)).isoformat()
+    payload = {"project_id": "1", "target_date": past, "planned_count": "7",
+               "actual_count": "7", "actual_evidence": "验收报告"}
+    assert client.post("/tasks/overview/checkpoints", data=payload).status_code == 302
+    logout(client)
+    for username in ("member", "observer", "outsider"):
+        login(client, username)
+        assert client.post("/tasks/overview/checkpoints", data=payload).status_code == 403
+        if username == "member":
+            assert client.get("/tasks/overview?project_id=1").status_code == 403
+        logout(client)
+    login(client, "manager")
+    with app.app_context():
+        admin = db.session.scalar(db.select(User).where(User.username == "admin"))
+        other = Project(name="其他项目", created_by_id=admin.id)
+        db.session.add(other)
+        db.session.commit()
+        other_id = other.id
+        checkpoint_id = db.session.scalar(db.select(ProjectProgressCheckpoint.id))
+    assert client.post("/tasks/overview/checkpoints", data={
+        **payload, "project_id": str(other_id),
+    }).status_code == 403
+    assert client.post("/tasks/overview/checkpoints", data={
+        **payload, "project_id": str(other_id), "checkpoint_id": str(checkpoint_id),
+    }).status_code == 403

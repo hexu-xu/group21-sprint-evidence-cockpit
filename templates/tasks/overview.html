@@ -54,4 +54,70 @@
       <p class="overview-note">进度提示根据任务状态与截止日期生成；项目是否按整体计划推进，还需要结合排期判断。</p>
     </section>
   </div>
+
+  <section class="overview-panel progress-plan" aria-labelledby="plan-title">
+    <div class="progress-plan-heading">
+      <div>
+        <h2 id="plan-title">计划与实际</h2>
+        <p class="overview-intro">以下按累计完成的用户故事数比较。实际值由项目经理依据证据录入，与上方的产品任务数量分开统计。</p>
+      </div>
+      {% if next_target %}<p class="next-target">下一检查点：{{ next_target.target_date.strftime('%Y-%m-%d') }}，计划累计 {{ next_target.planned_count }} 项</p>{% endif %}
+    </div>
+
+    {% if not checkpoints %}
+      <p class="overview-empty">尚未设置进度基线，无法判断项目是否按计划推进。</p>
+    {% elif not latest_due %}
+      <p class="progress-state">首个检查点尚未到期</p>
+    {% elif comparison is none %}
+      <p class="progress-state">实际结果待登记</p>
+      <p class="overview-intro">截至 {{ latest_due.target_date.strftime('%Y-%m-%d') }} 的检查点计划累计 {{ latest_due.planned_count }} 项；没有实际记录，暂不判断是否达标。</p>
+    {% elif comparison < 0 %}
+      <p class="progress-state attention">落后 {{ -comparison }} 项</p>
+      <p class="overview-intro">截至 {{ latest_due.target_date.strftime('%Y-%m-%d') }}：计划累计 {{ latest_due.planned_count }} 项，实际累计 {{ latest_due.actual_count }} 项。</p>
+    {% elif comparison > 0 %}
+      <p class="progress-state">超前 {{ comparison }} 项</p>
+      <p class="overview-intro">截至 {{ latest_due.target_date.strftime('%Y-%m-%d') }}：计划累计 {{ latest_due.planned_count }} 项，实际累计 {{ latest_due.actual_count }} 项。</p>
+    {% else %}
+      <p class="progress-state">达到检查点目标</p>
+      <p class="overview-intro">截至 {{ latest_due.target_date.strftime('%Y-%m-%d') }}：计划与实际均为累计 {{ latest_due.actual_count }} 项。</p>
+    {% endif %}
+
+    {% if checkpoints %}
+      <div class="table-wrap progress-table-wrap"><table><thead><tr><th>检查日期</th><th>计划累计</th><th>实际累计</th><th>差额</th><th>实际结果证据</th></tr></thead><tbody>
+        {% for item in checkpoints %}
+          <tr><td>{{ item.target_date.strftime('%Y-%m-%d') }}</td><td>{{ item.planned_count }} 项</td><td>{{ item.actual_count ~ ' 项' if item.actual_count is not none else '待登记' }}</td><td>{% if item.actual_count is none %}—{% elif item.actual_count - item.planned_count > 0 %}+{{ item.actual_count - item.planned_count }}{% else %}{{ item.actual_count - item.planned_count }}{% endif %}</td><td>{{ item.actual_evidence or '—' }}</td></tr>
+        {% endfor %}
+      </tbody></table></div>
+    {% endif %}
+
+    {% if can_manage %}
+      <details class="progress-editor">
+        <summary>新增检查点</summary>
+        <form method="post" action="{{ url_for('tasks.save_progress_checkpoint') }}" class="progress-form">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="project_id" value="{{ project.id }}">
+          <div class="field"><label for="checkpoint-date-new">检查日期</label><input id="checkpoint-date-new" name="target_date" type="date" required></div>
+          <div class="field"><label for="planned-new">计划累计故事数</label><input id="planned-new" name="planned_count" type="number" min="0" max="100000" required></div>
+          <div class="field"><label for="actual-new">实际累计故事数</label><input id="actual-new" name="actual_count" type="number" min="0" max="100000"><small>到期并有真实证据后再填写；未来检查点请留空。</small></div>
+          <div class="field"><label for="evidence-new">实际结果证据位置</label><input id="evidence-new" name="actual_evidence" maxlength="255" placeholder="例如：验收报告及提交号"></div>
+          <button type="submit" class="button button-primary">保存检查点</button>
+        </form>
+      </details>
+      {% for item in checkpoints %}
+        <details class="progress-editor">
+          <summary>编辑 {{ item.target_date.strftime('%Y-%m-%d') }} 检查点</summary>
+          <form method="post" action="{{ url_for('tasks.save_progress_checkpoint') }}" class="progress-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="project_id" value="{{ project.id }}">
+            <input type="hidden" name="checkpoint_id" value="{{ item.id }}">
+            <div class="field"><label for="checkpoint-date-{{ item.id }}">检查日期</label><input id="checkpoint-date-{{ item.id }}" name="target_date" type="date" value="{{ item.target_date.isoformat() }}" required></div>
+            <div class="field"><label for="planned-{{ item.id }}">计划累计故事数</label><input id="planned-{{ item.id }}" name="planned_count" type="number" min="0" max="100000" value="{{ item.planned_count }}" required></div>
+            <div class="field"><label for="actual-{{ item.id }}">实际累计故事数</label><input id="actual-{{ item.id }}" name="actual_count" type="number" min="0" max="100000" value="{{ item.actual_count if item.actual_count is not none else '' }}"></div>
+            <div class="field"><label for="evidence-{{ item.id }}">实际结果证据位置</label><input id="evidence-{{ item.id }}" name="actual_evidence" maxlength="255" value="{{ item.actual_evidence }}"></div>
+            <button type="submit" class="button button-secondary">更新检查点</button>
+          </form>
+        </details>
+      {% endfor %}
+    {% endif %}
+  </section>
 {% endblock %}

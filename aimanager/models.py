@@ -84,3 +84,23 @@ class TaskStatusEvent(db.Model):
     to_status = db.Column(db.String(20), nullable=False)
     actor_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     changed_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utc_now)
+
+
+class ProjectProgressCheckpoint(db.Model):
+    """A cumulative story plan and a human-recorded result for one date."""
+
+    __tablename__ = "project_progress_checkpoints"
+    __table_args__ = (
+        UniqueConstraint("project_id", "target_date"),
+        CheckConstraint("planned_count >= 0", name="progress_planned_nonnegative"),
+        CheckConstraint("actual_count IS NULL OR actual_count >= 0", name="progress_actual_nonnegative"),
+    )
+
+    id = db.Column(db.Integer, primary_key=True)
+    project_id = db.Column(db.Integer, db.ForeignKey("projects.id"), nullable=False)
+    target_date = db.Column(db.Date, nullable=False)
+    planned_count = db.Column(db.Integer, nullable=False)
+    actual_count = db.Column(db.Integer, nullable=True)
+    actual_evidence = db.Column(db.String(255), nullable=False, default="")
+    updated_by_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    updated_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now)

@@ -7,7 +7,7 @@ from flask import abort, flash, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
 
 from ..extensions import db
-from ..models import Project, ProjectMember, Task, User
+from ..models import Project, ProjectMember, ProjectProgressCheckpoint, Task, User
 from ..permissions import can_change_status, can_manage_tasks, can_view_task, require_manage_tasks, require_view_project
 from . import bp
 from .service import TaskInputError, change_status, create_task, delete_task
@@ -96,8 +96,96 @@ def project_overview():
          "percent": round(stats[status] * 100 / stats["total"]) if stats["total"] else 0}
         for status, label in (("todo", "待完成"), ("in_progress", "进行中"), ("done", "已完成"))
     ]
+    checkpoints = db.session.scalars(
+        db.select(ProjectProgressCheckpoint)
+        .where(ProjectProgressCheckpoint.project_id == project.id)
+        .order_by(ProjectProgressCheckpoint.target_date)
+    ).all()
+    today = date.today()
+    latest_due = next((item for item in reversed(checkpoints) if item.target_date <= today), None)
+    next_target = next((item for item in checkpoints if item.target_date > today), None)
+    comparison = None
+    if latest_due and latest_due.actual_count is not None:
+        comparison = latest_due.actual_count - latest_due.planned_count
     return render_template("tasks/overview.html", project=project,
-                           can_manage=can_manage, stats=stats, distribution=distribution)
+                           can_manage=can_manage, stats=stats, distribution=distribution,
+                           checkpoints=checkpoints, latest_due=latest_due,
+                           next_target=next_target, comparison=comparison, today=today)
+
+
+def _cumulative_count(value, label):
+    try:
+        count = int(value)
+    except (TypeError, ValueError) as exc:
+        raise TaskInputError(f"{label}须为非负整数") from exc
+    if not 0 <= count <= 100000:
+        raise TaskInputError(f"{label}须为0到100000之间的整数")
+    return count
+
+
+@bp.post("/overview/checkpoints")
+@login_required
+def save_progress_checkpoint():
+    project = selected_project()
+    if project is None:
+        abort(404)
+    require_manage_tasks(current_user, project.id)
+    try:
+        checkpoint_id = request.form.get("checkpoint_id", "").strip()
+        checkpoint = None
+        if checkpoint_id:
+            checkpoint = db.session.get(ProjectProgressCheckpoint, int(checkpoint_id))
+            if checkpoint is None or checkpoint.project_id != project.id:
+                abort(403)
+        target_date = date.fromisoformat(request.form.get("target_date", ""))
+        planned_count = _cumulative_count(request.form.get("planned_count"), "计划累计数")
+        actual_raw = request.form.get("actual_count", "").strip()
+        actual_count = _cumulative_count(actual_raw, "实际累计数") if actual_raw else None
+        evidence = request.form.get("actual_evidence", "").strip()
+        if len(evidence) > 255:
+            raise TaskInputError("实际结果证据位置不能超过255字")
+        if actual_count is not None and target_date > date.today():
+            raise TaskInputError("未来检查点不能提前填写实际结果")
+        if actual_count is not None and not evidence:
+            raise TaskInputError("填写实际累计数时，请同时填写证据位置")
+        if actual_count is None and evidence:
+            raise TaskInputError("尚未填写实际累计数时，请清空证据位置")
+        other = db.session.scalars(
+            db.select(ProjectProgressCheckpoint)
+            .where(ProjectProgressCheckpoint.project_id == project.id)
+        ).all()
+        for item in other:
+            if checkpoint is not None and item.id == checkpoint.id:
+                continue
+            if item.target_date == target_date:
+                raise TaskInputError("该日期已有检查点，请编辑原记录")
+            if item.target_date < target_date and item.planned_count > planned_count:
+                raise TaskInputError("累计计划数不能低于更早检查点")
+            if item.target_date > target_date and item.planned_count < planned_count:
+                raise TaskInputError("累计计划数不能高于更晚检查点")
+            if actual_count is not None and item.actual_count is not None:
+                if item.target_date < target_date and item.actual_count > actual_count:
+                    raise TaskInputError("实际累计数不能低于更早检查点")
+                if item.target_date > target_date and item.actual_count < actual_count:
+                    raise TaskInputError("实际累计数不能高于更晚检查点")
+    except TaskInputError as exc:
+        flash(str(exc), "error")
+        return redirect(url_for("tasks.project_overview", project_id=project.id))
+    except (TypeError, ValueError):
+        flash("检查点编号或日期无效", "error")
+        return redirect(url_for("tasks.project_overview", project_id=project.id))
+
+    if checkpoint is None:
+        checkpoint = ProjectProgressCheckpoint(project_id=project.id)
+        db.session.add(checkpoint)
+    checkpoint.target_date = target_date
+    checkpoint.planned_count = planned_count
+    checkpoint.actual_count = actual_count
+    checkpoint.actual_evidence = evidence
+    checkpoint.updated_by_id = current_user.id
+    db.session.commit()
+    flash("项目进度检查点已保存", "success")
+    return redirect(url_for("tasks.project_overview", project_id=project.id))
 
 
 @bp.route("/new", methods=["GET", "POST"])
