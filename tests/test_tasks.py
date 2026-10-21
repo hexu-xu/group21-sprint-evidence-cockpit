@@ -8,7 +8,8 @@ from werkzeug.security import generate_password_hash
 
 from app import create_app
 from aimanager.extensions import db
-from aimanager.models import Project, ProjectMember, ProjectProgressCheckpoint, Task, TaskStatusEvent, User
+from aimanager.models import (Project, ProjectMember, ProjectProgressCheckpoint,
+                              ProjectProgressCheckpointRevision, Task, TaskStatusEvent, User)
 
 
 @pytest.fixture
@@ -413,7 +414,7 @@ def test_progress_checkpoints_compare_recorded_stories_without_mixing_task_count
     assert client.post("/tasks/overview/checkpoints", data={
         "project_id": "1", "checkpoint_id": str(checkpoint_id),
         "target_date": past, "planned_count": "7", "actual_count": "6",
-        "actual_evidence": "独立验收报告",
+        "actual_evidence": "独立验收报告", "revision_reason": "复核后更正实际值",
     }).status_code == 302
     lagging = client.get("/tasks/overview?project_id=1").get_data(as_text=True)
     assert "落后 1 项" in lagging and "实际累计 6 项" in lagging
@@ -471,3 +472,66 @@ def test_progress_checkpoints_are_project_scoped_and_manager_only(app, client):
     assert client.post("/tasks/overview/checkpoints", data={
         **payload, "project_id": str(other_id), "checkpoint_id": str(checkpoint_id),
     }).status_code == 403
+
+
+def test_progress_revision_preserves_original_plan_evidence_and_reason(app, client):
+    login(client, "manager")
+    past = (date.today() - timedelta(days=2)).isoformat()
+    established = date.today().isoformat()
+    endpoint = "/tasks/overview/checkpoints"
+    original = {"project_id": "1", "target_date": past,
+                "planned_count": "9", "actual_count": "7", "actual_evidence": "证据A",
+                "baseline_version": "v1", "baseline_established_on": established}
+    assert client.post(endpoint, data=original).status_code == 302
+    with app.app_context():
+        checkpoint_id = db.session.scalar(db.select(ProjectProgressCheckpoint.id))
+    changed = {**original, "checkpoint_id": str(checkpoint_id),
+               "planned_count": "7", "actual_evidence": "证据B"}
+    no_reason = client.post(endpoint, data=changed, follow_redirects=True).get_data(as_text=True)
+    assert "修改检查点须填写修订原因" in no_reason
+    no_version = client.post(endpoint, data={**changed, "revision_reason": "调整目标"},
+                             follow_redirects=True).get_data(as_text=True)
+    assert "修改计划目标须填写新的基线版本" in no_version
+    with app.app_context():
+        current = db.session.get(ProjectProgressCheckpoint, checkpoint_id)
+        assert (current.planned_count, current.actual_evidence) == (9, "证据A")
+
+    revised = {**changed, "baseline_version": "v2",
+               "revision_reason": "评审确认范围调整，保留原目标"}
+    assert client.post(endpoint, data=revised).status_code == 302
+    body = client.get("/tasks/overview?project_id=1").get_data(as_text=True)
+    assert "达到检查点目标" in body
+    assert "9 → 7" in body and "证据A → 证据B" in body
+    assert "v1" in body and "v2" in body and established in body
+    assert "评审确认范围调整，保留原目标" in body
+    with app.app_context():
+        revisions = db.session.scalars(db.select(ProjectProgressCheckpointRevision)
+                                       .order_by(ProjectProgressCheckpointRevision.id)).all()
+        assert len(revisions) == 2
+        assert revisions[0].old_planned_count is None
+        assert revisions[1].old_planned_count == 9
+        assert revisions[1].new_planned_count == 7
+        assert revisions[1].old_actual_evidence == "证据A"
+        assert revisions[1].new_actual_evidence == "证据B"
+        assert revisions[1].actor_id is not None and revisions[1].reason
+
+
+def test_progress_actual_correction_requires_reason_and_keeps_previous_evidence(app, client):
+    login(client, "manager")
+    past = (date.today() - timedelta(days=1)).isoformat()
+    endpoint = "/tasks/overview/checkpoints"
+    original = {"project_id": "1", "target_date": past,
+                "planned_count": "7", "actual_count": "6", "actual_evidence": "初验报告"}
+    assert client.post(endpoint, data=original).status_code == 302
+    with app.app_context():
+        checkpoint_id = db.session.scalar(db.select(ProjectProgressCheckpoint.id))
+    changed = {**original, "checkpoint_id": str(checkpoint_id),
+               "actual_count": "7", "actual_evidence": "复验报告"}
+    body = client.post(endpoint, data=changed, follow_redirects=True).get_data(as_text=True)
+    assert "修改检查点须填写修订原因" in body
+    assert client.post(endpoint, data={**changed, "revision_reason": "复验通过"}).status_code == 302
+    with app.app_context():
+        events = db.session.scalars(db.select(ProjectProgressCheckpointRevision)
+                                    .order_by(ProjectProgressCheckpointRevision.id)).all()
+        assert (events[-1].old_actual_count, events[-1].new_actual_count) == (6, 7)
+        assert (events[-1].old_actual_evidence, events[-1].new_actual_evidence) == ("初验报告", "复验报告")

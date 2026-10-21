@@ -59,7 +59,7 @@
     <div class="progress-plan-heading">
       <div>
         <h2 id="plan-title">计划与实际</h2>
-        <p class="overview-intro">以下按累计完成的用户故事数比较。实际值由项目经理依据证据录入，与上方的产品任务数量分开统计。</p>
+        <p class="overview-intro">以下按累计完成的用户故事数比较。实际值由项目经理依据证据录入，与上方的产品任务数量分开统计。每个检查点显示计划版本与编制日期；修订保留旧值、操作人、时间和原因。</p>
       </div>
       {% if next_target %}<p class="next-target">下一检查点：{{ next_target.target_date.strftime('%Y-%m-%d') }}，计划累计 {{ next_target.planned_count }} 项</p>{% endif %}
     </div>
@@ -83,9 +83,27 @@
     {% endif %}
 
     {% if checkpoints %}
-      <div class="table-wrap progress-table-wrap"><table><thead><tr><th>检查日期</th><th>计划累计</th><th>实际累计</th><th>差额</th><th>实际结果证据</th></tr></thead><tbody>
+      <div class="table-wrap progress-table-wrap"><table><thead><tr><th>检查日期</th><th>基线版本／编制日期</th><th>计划累计</th><th>实际累计</th><th>差额</th><th>实际结果证据</th></tr></thead><tbody>
         {% for item in checkpoints %}
-          <tr><td>{{ item.target_date.strftime('%Y-%m-%d') }}</td><td>{{ item.planned_count }} 项</td><td>{{ item.actual_count ~ ' 项' if item.actual_count is not none else '待登记' }}</td><td>{% if item.actual_count is none %}—{% elif item.actual_count - item.planned_count > 0 %}+{{ item.actual_count - item.planned_count }}{% else %}{{ item.actual_count - item.planned_count }}{% endif %}</td><td>{{ item.actual_evidence or '—' }}</td></tr>
+          <tr><td>{{ item.target_date.strftime('%Y-%m-%d') }}</td><td>{{ item.baseline_version or '待核' }}／{{ item.baseline_established_on.strftime('%Y-%m-%d') if item.baseline_established_on else '待核' }}</td><td>{{ item.planned_count }} 项</td><td>{{ item.actual_count ~ ' 项' if item.actual_count is not none else '待登记' }}</td><td>{% if item.actual_count is none %}—{% elif item.actual_count - item.planned_count > 0 %}+{{ item.actual_count - item.planned_count }}{% else %}{{ item.actual_count - item.planned_count }}{% endif %}</td><td>{{ item.actual_evidence or '—' }}</td></tr>
+        {% endfor %}
+      </tbody></table></div>
+    {% endif %}
+
+    {% if revisions %}
+      <h3>检查点修订记录</h3>
+      <p class="overview-intro">记录按修改时间倒序显示。迁移前已有数据若显示“待核”，其更早的修改历史无法自动还原。</p>
+      <div class="table-wrap progress-table-wrap"><table><thead><tr><th>时间（UTC）／操作人</th><th>检查日期</th><th>基线版本／编制日期</th><th>计划累计</th><th>实际累计</th><th>证据位置</th><th>原因</th></tr></thead><tbody>
+        {% for item in revisions %}
+          <tr>
+            <td>{{ item.changed_at.strftime('%Y-%m-%d %H:%M:%S') }}<br>{{ item.actor.username }}</td>
+            <td>{{ item.old_target_date.isoformat() if item.old_target_date else '—' }} → {{ item.new_target_date.isoformat() }}</td>
+            <td>{{ item.old_baseline_version or '—' }}／{{ item.old_baseline_established_on.isoformat() if item.old_baseline_established_on else '—' }} → {{ item.new_baseline_version }}／{{ item.new_baseline_established_on.isoformat() }}</td>
+            <td>{{ item.old_planned_count if item.old_planned_count is not none else '—' }} → {{ item.new_planned_count }}</td>
+            <td>{{ item.old_actual_count if item.old_actual_count is not none else '—' }} → {{ item.new_actual_count if item.new_actual_count is not none else '—' }}</td>
+            <td>{{ item.old_actual_evidence or '—' }} → {{ item.new_actual_evidence or '—' }}</td>
+            <td>{{ item.reason }}</td>
+          </tr>
         {% endfor %}
       </tbody></table></div>
     {% endif %}
@@ -97,6 +115,8 @@
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <input type="hidden" name="project_id" value="{{ project.id }}">
           <div class="field"><label for="checkpoint-date-new">检查日期</label><input id="checkpoint-date-new" name="target_date" type="date" required></div>
+          <div class="field"><label for="baseline-version-new">基线版本</label><input id="baseline-version-new" name="baseline_version" maxlength="32" value="{{ checkpoints[0].baseline_version if checkpoints and checkpoints[0].baseline_version else 'v1' }}" required></div>
+          <div class="field"><label for="baseline-date-new">基线编制日期</label><input id="baseline-date-new" name="baseline_established_on" type="date" value="{{ checkpoints[0].baseline_established_on.isoformat() if checkpoints and checkpoints[0].baseline_established_on else today.isoformat() }}" required><small>填写真实编制日期；历史起点日期不能冒充计划制定日期。</small></div>
           <div class="field"><label for="planned-new">计划累计故事数</label><input id="planned-new" name="planned_count" type="number" min="0" max="100000" required></div>
           <div class="field"><label for="actual-new">实际累计故事数</label><input id="actual-new" name="actual_count" type="number" min="0" max="100000"><small>到期并有真实证据后再填写；未来检查点请留空。</small></div>
           <div class="field"><label for="evidence-new">实际结果证据位置</label><input id="evidence-new" name="actual_evidence" maxlength="255" placeholder="例如：验收报告及提交号"></div>
@@ -111,9 +131,12 @@
             <input type="hidden" name="project_id" value="{{ project.id }}">
             <input type="hidden" name="checkpoint_id" value="{{ item.id }}">
             <div class="field"><label for="checkpoint-date-{{ item.id }}">检查日期</label><input id="checkpoint-date-{{ item.id }}" name="target_date" type="date" value="{{ item.target_date.isoformat() }}" required></div>
+            <div class="field"><label for="baseline-version-{{ item.id }}">基线版本</label><input id="baseline-version-{{ item.id }}" name="baseline_version" maxlength="32" value="{{ item.baseline_version or '' }}" required><small>修改检查日期或计划目标时，须填写新版本和修订原因。</small></div>
+            <div class="field"><label for="baseline-date-{{ item.id }}">基线编制日期</label><input id="baseline-date-{{ item.id }}" name="baseline_established_on" type="date" value="{{ item.baseline_established_on.isoformat() if item.baseline_established_on else '' }}" required></div>
             <div class="field"><label for="planned-{{ item.id }}">计划累计故事数</label><input id="planned-{{ item.id }}" name="planned_count" type="number" min="0" max="100000" value="{{ item.planned_count }}" required></div>
             <div class="field"><label for="actual-{{ item.id }}">实际累计故事数</label><input id="actual-{{ item.id }}" name="actual_count" type="number" min="0" max="100000" value="{{ item.actual_count if item.actual_count is not none else '' }}"></div>
             <div class="field"><label for="evidence-{{ item.id }}">实际结果证据位置</label><input id="evidence-{{ item.id }}" name="actual_evidence" maxlength="255" value="{{ item.actual_evidence }}"></div>
+            <div class="field"><label for="revision-reason-{{ item.id }}">修订原因</label><input id="revision-reason-{{ item.id }}" name="revision_reason" maxlength="255" required><small>所有修改均保留修改前后值、时间和操作人。</small></div>
             <button type="submit" class="button button-secondary">更新检查点</button>
           </form>
         </details>

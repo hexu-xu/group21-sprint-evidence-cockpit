@@ -102,5 +102,34 @@ class ProjectProgressCheckpoint(db.Model):
     planned_count = db.Column(db.Integer, nullable=False)
     actual_count = db.Column(db.Integer, nullable=True)
     actual_evidence = db.Column(db.String(255), nullable=False, default="")
+    baseline_version = db.Column(db.String(32), nullable=True)
+    baseline_established_on = db.Column(db.Date, nullable=True)
     updated_by_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     updated_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utc_now, onupdate=utc_now)
+
+
+class ProjectProgressCheckpointRevision(db.Model):
+    """Append-only before/after record for a checkpoint creation or revision."""
+
+    __tablename__ = "project_progress_checkpoint_revisions"
+
+    id = db.Column(db.Integer, primary_key=True)
+    checkpoint_id = db.Column(db.Integer, db.ForeignKey("project_progress_checkpoints.id"), nullable=False)
+    project_id = db.Column(db.Integer, db.ForeignKey("projects.id"), nullable=False)
+    old_target_date = db.Column(db.Date, nullable=True)
+    new_target_date = db.Column(db.Date, nullable=False)
+    old_planned_count = db.Column(db.Integer, nullable=True)
+    new_planned_count = db.Column(db.Integer, nullable=False)
+    old_actual_count = db.Column(db.Integer, nullable=True)
+    new_actual_count = db.Column(db.Integer, nullable=True)
+    old_actual_evidence = db.Column(db.String(255), nullable=True)
+    new_actual_evidence = db.Column(db.String(255), nullable=False, default="")
+    old_baseline_version = db.Column(db.String(32), nullable=True)
+    new_baseline_version = db.Column(db.String(32), nullable=False)
+    old_baseline_established_on = db.Column(db.Date, nullable=True)
+    new_baseline_established_on = db.Column(db.Date, nullable=False)
+    reason = db.Column(db.String(255), nullable=False)
+    actor_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    changed_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utc_now)
+
+    actor = db.relationship("User")
