@@ -7,7 +7,8 @@ from flask import abort, flash, redirect, render_template, request, url_for
 from flask_login import current_user, login_required
 
 from ..extensions import db
-from ..models import Project, ProjectMember, Task, User
+from ..models import (Project, ProjectMember, ProjectProgressCheckpoint,
+                      ProjectProgressCheckpointRevision, Task, User)
 from ..permissions import can_change_status, can_manage_tasks, can_view_task, require_manage_tasks, require_view_project
 from . import bp
 from .service import TaskInputError, change_status, create_task, delete_task
@@ -96,8 +97,175 @@ def project_overview():
          "percent": round(stats[status] * 100 / stats["total"]) if stats["total"] else 0}
         for status, label in (("todo", "待完成"), ("in_progress", "进行中"), ("done", "已完成"))
     ]
+    checkpoints = db.session.scalars(
+        db.select(ProjectProgressCheckpoint)
+        .where(ProjectProgressCheckpoint.project_id == project.id)
+        .order_by(ProjectProgressCheckpoint.target_date)
+    ).all()
+    revisions = db.session.scalars(
+        db.select(ProjectProgressCheckpointRevision)
+        .where(ProjectProgressCheckpointRevision.project_id == project.id)
+        .order_by(ProjectProgressCheckpointRevision.changed_at.desc(),
+                  ProjectProgressCheckpointRevision.id.desc())
+    ).all()
+    today = date.today()
+    latest_due = next((item for item in reversed(checkpoints) if item.target_date <= today), None)
+    next_target = next((item for item in checkpoints if item.target_date > today), None)
+    comparison = None
+    if latest_due and latest_due.actual_count is not None:
+        comparison = latest_due.actual_count - latest_due.planned_count
     return render_template("tasks/overview.html", project=project,
-                           can_manage=can_manage, stats=stats, distribution=distribution)
+                           can_manage=can_manage, stats=stats, distribution=distribution,
+                           checkpoints=checkpoints, revisions=revisions, latest_due=latest_due,
+                           next_target=next_target, comparison=comparison, today=today)
+
+
+def _cumulative_count(value, label):
+    try:
+        count = int(value)
+    except (TypeError, ValueError) as exc:
+        raise TaskInputError(f"{label}须为非负整数") from exc
+    if not 0 <= count <= 100000:
+        raise TaskInputError(f"{label}须为0到100000之间的整数")
+    return count
+
+
+def _checkpoint_values(checkpoint):
+    if checkpoint is None:
+        return {}
+    return {
+        "target_date": checkpoint.target_date,
+        "planned_count": checkpoint.planned_count,
+        "actual_count": checkpoint.actual_count,
+        "actual_evidence": checkpoint.actual_evidence,
+        "baseline_version": checkpoint.baseline_version,
+        "baseline_established_on": checkpoint.baseline_established_on,
+    }
+
+
+@bp.post("/overview/checkpoints")
+@login_required
+def save_progress_checkpoint():
+    project = selected_project()
+    if project is None:
+        abort(404)
+    require_manage_tasks(current_user, project.id)
+    try:
+        checkpoint_id = request.form.get("checkpoint_id", "").strip()
+        checkpoint = None
+        if checkpoint_id:
+            checkpoint = db.session.get(ProjectProgressCheckpoint, int(checkpoint_id))
+            if checkpoint is None or checkpoint.project_id != project.id:
+                abort(403)
+        previous = _checkpoint_values(checkpoint)
+        target_date = date.fromisoformat(request.form.get("target_date", ""))
+        planned_count = _cumulative_count(request.form.get("planned_count"), "计划累计数")
+        actual_raw = request.form.get("actual_count", "").strip()
+        actual_count = _cumulative_count(actual_raw, "实际累计数") if actual_raw else None
+        evidence = request.form.get("actual_evidence", "").strip()
+        if len(evidence) > 255:
+            raise TaskInputError("实际结果证据位置不能超过255字")
+        if actual_count is not None and target_date > date.today():
+            raise TaskInputError("未来检查点不能提前填写实际结果")
+        if actual_count is not None and not evidence:
+            raise TaskInputError("填写实际累计数时，请同时填写证据位置")
+        if actual_count is None and evidence:
+            raise TaskInputError("尚未填写实际累计数时，请清空证据位置")
+        other = db.session.scalars(
+            db.select(ProjectProgressCheckpoint)
+            .where(ProjectProgressCheckpoint.project_id == project.id)
+        ).all()
+        existing = next((item for item in other if item.baseline_version and
+                         item.baseline_established_on), None)
+        version = request.form.get("baseline_version", "").strip()
+        established_raw = request.form.get("baseline_established_on", "").strip()
+        if checkpoint is None:
+            version = version or (existing.baseline_version if existing else "v1")
+            established_on = (date.fromisoformat(established_raw) if established_raw else
+                              (existing.baseline_established_on if existing else date.today()))
+        else:
+            version = version or checkpoint.baseline_version
+            established_on = (date.fromisoformat(established_raw) if established_raw else
+                              checkpoint.baseline_established_on)
+        if not version or len(version) > 32 or not established_on:
+            raise TaskInputError("请填写可核实的基线版本和编制日期")
+        if established_on > date.today():
+            raise TaskInputError("基线编制日期不能晚于今天")
+        if (checkpoint is None and existing and version == existing.baseline_version and
+                established_on != existing.baseline_established_on):
+            raise TaskInputError("同一基线版本的编制日期须保持一致")
+        reason = request.form.get("revision_reason", "").strip()
+        if len(reason) > 255:
+            raise TaskInputError("修订原因不能超过255字")
+        for item in other:
+            if checkpoint is not None and item.id == checkpoint.id:
+                continue
+            if item.target_date == target_date:
+                raise TaskInputError("该日期已有检查点，请编辑原记录")
+            if item.target_date < target_date and item.planned_count > planned_count:
+                raise TaskInputError("累计计划数不能低于更早检查点")
+            if item.target_date > target_date and item.planned_count < planned_count:
+                raise TaskInputError("累计计划数不能高于更晚检查点")
+            if actual_count is not None and item.actual_count is not None:
+                if item.target_date < target_date and item.actual_count > actual_count:
+                    raise TaskInputError("实际累计数不能低于更早检查点")
+                if item.target_date > target_date and item.actual_count < actual_count:
+                    raise TaskInputError("实际累计数不能高于更晚检查点")
+        new_values = {
+            "target_date": target_date, "planned_count": planned_count,
+            "actual_count": actual_count, "actual_evidence": evidence,
+            "baseline_version": version, "baseline_established_on": established_on,
+        }
+        if checkpoint is not None and previous != new_values:
+            if not reason:
+                raise TaskInputError("修改检查点须填写修订原因")
+            if (target_date != checkpoint.target_date or planned_count != checkpoint.planned_count):
+                if version == checkpoint.baseline_version:
+                    raise TaskInputError("修改计划目标须填写新的基线版本")
+                used_version = db.session.scalar(
+                    db.select(ProjectProgressCheckpointRevision.id)
+                    .where(ProjectProgressCheckpointRevision.checkpoint_id == checkpoint.id,
+                           ProjectProgressCheckpointRevision.new_baseline_version == version)
+                )
+                if used_version:
+                    raise TaskInputError("该检查点的基线版本已使用，请填写新版本")
+    except TaskInputError as exc:
+        flash(str(exc), "error")
+        return redirect(url_for("tasks.project_overview", project_id=project.id))
+    except (TypeError, ValueError):
+        flash("检查点编号或日期无效", "error")
+        return redirect(url_for("tasks.project_overview", project_id=project.id))
+
+    if checkpoint is None:
+        checkpoint = ProjectProgressCheckpoint(project_id=project.id)
+        db.session.add(checkpoint)
+        previous = {}
+        reason = reason or "首次建立检查点"
+    elif previous == new_values:
+        flash("检查点内容未变", "success")
+        return redirect(url_for("tasks.project_overview", project_id=project.id))
+    checkpoint.target_date = target_date
+    checkpoint.planned_count = planned_count
+    checkpoint.actual_count = actual_count
+    checkpoint.actual_evidence = evidence
+    checkpoint.baseline_version = version
+    checkpoint.baseline_established_on = established_on
+    checkpoint.updated_by_id = current_user.id
+    db.session.flush()
+    db.session.add(ProjectProgressCheckpointRevision(
+        checkpoint_id=checkpoint.id, project_id=project.id,
+        old_target_date=previous.get("target_date"), new_target_date=target_date,
+        old_planned_count=previous.get("planned_count"), new_planned_count=planned_count,
+        old_actual_count=previous.get("actual_count"), new_actual_count=actual_count,
+        old_actual_evidence=previous.get("actual_evidence"), new_actual_evidence=evidence,
+        old_baseline_version=previous.get("baseline_version"), new_baseline_version=version,
+        old_baseline_established_on=previous.get("baseline_established_on"),
+        new_baseline_established_on=established_on,
+        reason=reason, actor_id=current_user.id,
+    ))
+    db.session.commit()
+    flash("项目进度检查点已保存", "success")
+    return redirect(url_for("tasks.project_overview", project_id=project.id))
 
 
 @bp.route("/new", methods=["GET", "POST"])
