@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% set active_page = 'analytics' %}
+{% block title %}统计分析 · 爱管理{% endblock %}
+{% block breadcrumb %}统计分析{% endblock %}
+{% block content %}
+<section class="page-heading"><div><h1>{{ project.name }} · 统计分析</h1><p>按任务截止日期范围和当前状态分析；数据随任务变化实时更新。</p></div></section>
+<section class="overview-panel"><form method="get" class="compact-form"><input type="hidden" name="project_id" value="{{ project.id }}"><label>开始日期 <input type="date" name="from_date" value="{{ bounds.from_date or '' }}"></label><label>结束日期 <input type="date" name="to_date" value="{{ bounds.to_date or '' }}"></label><button type="submit" class="button button-secondary">分析</button></form></section>
+<section class="metric-grid"><div class="metric-card"><span>范围内任务</span><strong>{{ stats.total }}</strong></div><div class="metric-card"><span>待完成</span><strong>{{ stats.todo }}</strong></div><div class="metric-card"><span>进行中</span><strong>{{ stats.in_progress }}</strong></div><div class="metric-card"><span>已完成</span><strong>{{ stats.done }}</strong><small>完成率 {{ stats.completion_rate }}%</small></div></section>
+<section class="overview-panel"><h2>按日期与状态</h2>{% if by_date %}<div class="table-wrap"><table><thead><tr><th>截止日期</th><th>待完成</th><th>进行中</th><th>已完成</th></tr></thead><tbody>{% for due, counts in by_date.items() %}<tr><td>{{ due }}</td><td>{{ counts.todo }}</td><td>{{ counts.in_progress }}</td><td>{{ counts.done }}</td></tr>{% endfor %}</tbody></table></div>{% else %}<p>该时间范围内没有任务。</p>{% endif %}</section>
+{% endblock %}

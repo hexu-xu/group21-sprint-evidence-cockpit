@@ -13,6 +13,20 @@
       {% if can_manage %}<a class="button button-primary" href="{{ url_for('tasks.new_task', project_id=project.id) }}">新建任务</a>{% endif %}
     </section>
 
+    <section class="overview-panel" aria-label="任务筛选"><h2>筛选任务</h2>
+      <form method="get" action="{{ url_for('tasks.list_tasks') }}" class="compact-form">
+        <input type="hidden" name="project_id" value="{{ project.id }}">
+        <input type="hidden" name="status" value="{{ active_status }}">
+        <label>任务名称 <input name="q" value="{{ filters.q }}" maxlength="120"></label>
+        <label>优先级 <select name="priority"><option value="">全部</option>{% for value, label in [('high','高'),('medium','中'),('low','低')] %}<option value="{{ value }}" {% if filters.priority == value %}selected{% endif %}>{{ label }}</option>{% endfor %}</select></label>
+        {% if full_project_view %}<label>负责人 <select name="assignee_id"><option value="">全部</option>{% for member in members %}<option value="{{ member.id }}" {% if filters.assignee_id == member.id|string %}selected{% endif %}>{{ member.username }}</option>{% endfor %}</select></label>{% endif %}
+        <label>截止日期起 <input type="date" name="due_from" value="{{ filters.due_from }}"></label>
+        <label>截止日期止 <input type="date" name="due_to" value="{{ filters.due_to }}"></label>
+        <button type="submit" class="button button-secondary">应用筛选</button>
+        <a href="{{ url_for('tasks.list_tasks', project_id=project.id) }}">清除</a>
+      </form>
+    </section>
+
     <section class="metric-grid" aria-label="任务统计">
       <div class="metric-card"><span>任务总数</span><strong>{{ stats.total }}</strong><small>{{ '当前项目' if full_project_view else '分配给我的任务' }}</small></div>
       <div class="metric-card"><span>进行中</span><strong>{{ stats.in_progress }}</strong><small>正在推进</small></div>
@@ -27,7 +41,7 @@
       </div>
       <nav class="map-tabs" aria-label="任务状态">
         {% for status, label in [('todo','待完成'),('in_progress','进行中'),('done','已完成')] %}
-          <a class="map-tab {% if active_status == status %}is-active{% endif %}" href="{{ url_for('tasks.list_tasks', project_id=project.id, status=status) }}" {% if active_status == status %}aria-current="page"{% endif %}>{{ label }}<span>{{ board[status] | length }}</span></a>
+          <a class="map-tab {% if active_status == status %}is-active{% endif %}" href="{{ url_for('tasks.list_tasks', project_id=project.id, status=status, **filter_query) }}" {% if active_status == status %}aria-current="page"{% endif %}>{{ label }}<span>{{ board[status] | length }}</span></a>
         {% endfor %}
       </nav>
       <div class="story-map-body">

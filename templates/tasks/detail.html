@@ -15,4 +15,8 @@
       {% if can_manage %}<section class="detail-card danger-card"><h2>删除任务</h2><p>删除后，任务及状态记录会从看板中移除。</p><a class="button button-danger-outline button-full" href="{{ url_for('tasks.delete_task_route', task_id=task.id) }}">删除此任务</a></section>{% endif %}
     </aside>
   </div>
+  <section class="overview-panel"><h2>进展备注</h2>
+    {% for note in comments %}<article class="progress-note"><strong>{{ note.author.username }}</strong> · <time>{{ note.created_at | local_datetime }}</time><p>{{ note.body }}</p></article>{% else %}<p>尚无进展备注。</p>{% endfor %}
+    {% if can_update %}<form method="post" action="{{ url_for('tasks.add_comment', task_id=task.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label for="note_body">记录执行情况</label><textarea id="note_body" name="body" maxlength="2000" required></textarea><button type="submit" class="button button-primary">保存备注</button></form>{% endif %}
+  </section>
 {% endblock %}

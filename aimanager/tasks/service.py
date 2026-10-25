@@ -76,6 +76,8 @@ def change_status(task, status, actor_id):
 
 def delete_task(task):
     """Delete a task and its dependent status history in one transaction."""
+    from ..models import TaskComment
+    db.session.execute(db.delete(TaskComment).where(TaskComment.task_id == task.id))
     db.session.execute(
         db.delete(TaskStatusEvent).where(TaskStatusEvent.task_id == task.id)
     )

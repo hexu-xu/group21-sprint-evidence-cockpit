@@ -73,11 +73,13 @@ def create_app(test_config=None):
         return user if user is not None and user.active else None
 
     from .auth import bp as auth_bp
+    from .admin import bp as admin_bp
     from .evidence import bp as evidence_bp
     from .tasks import bp as tasks_bp
     from .seed import seed_demo
 
     app.register_blueprint(auth_bp)
+    app.register_blueprint(admin_bp)
     app.register_blueprint(evidence_bp)
     app.register_blueprint(tasks_bp)
     app.cli.add_command(seed_demo)
