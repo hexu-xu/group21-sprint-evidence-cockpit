@@ -48,3 +48,14 @@
 .progress-plan{margin-top:20px}.progress-plan-heading{display:flex;justify-content:space-between;align-items:start;gap:20px}.next-target{margin:0;padding:9px 12px;border-radius:5px;background:#f6f1f1;color:#8c252b;font-size:11px;font-weight:700;white-space:nowrap}.progress-table-wrap{margin-top:23px}.progress-table-wrap td:last-child{white-space:normal;overflow-wrap:anywhere}.progress-editor{margin-top:14px;border-top:1px solid #ecece9}.progress-editor summary{padding:14px 0;color:#4b4b49;font-size:12px;font-weight:700;cursor:pointer}.progress-form{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:8px 17px;padding:3px 0 20px}.progress-form .field{margin:0}.progress-form .button{grid-column:1/-1;justify-self:start;margin-top:4px}
 @media(max-width:850px){.progress-plan-heading{flex-direction:column}.next-target{white-space:normal}}
 @media(max-width:650px){.progress-form{grid-template-columns:1fr}.progress-plan{padding:20px}}
+/* Backlog story views */
+.compact-form{display:flex;flex-wrap:wrap;gap:12px;align-items:end;margin:16px 0}
+.compact-form label{display:flex;flex-direction:column;gap:5px;min-width:145px}
+.compact-form input,.compact-form select{min-height:38px;padding:6px 9px;border:1px solid #c8d3df;border-radius:7px;background:#fff}
+.progress-note{border-top:1px solid #dce5ee;padding:12px 0;white-space:pre-wrap}
+.progress-note p{margin:7px 0 0}
+.trend-row{display:grid;grid-template-columns:120px 1fr 1fr;gap:16px;align-items:center;border-top:1px solid #dce5ee;padding:14px 0}
+.trend-track{height:10px;background:#edf1f5;border-radius:5px;overflow:hidden;margin-top:5px}
+.trend-track span{display:block;height:100%}
+.trend-plan{background:#4d78b6}.trend-actual{background:#2f9a76}
+@media(max-width:650px){.trend-row{grid-template-columns:1fr}}

@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% set active_page = 'overview' %}
+{% block title %}项目进度趋势 · 爱管理{% endblock %}
+{% block breadcrumb %}进度趋势{% endblock %}
+{% block content %}
+<section class="page-heading"><div><h1>{{ project.name }} · 项目进度趋势</h1><p>按检查点日期比较累计计划与已登记实际。未登记实际保留空缺，不推算为达标。</p></div></section>
+<section class="overview-panel"><h2>累计用户故事数</h2>
+{% if rows %}{% for row in rows %}<div class="trend-row"><strong>{{ row.point.target_date }}</strong><div>计划 {{ row.point.planned_count }} 项 <div class="trend-track"><span class="trend-plan" style="width:{{ row.plan_width }}%"></span></div></div><div>实际 {{ row.point.actual_count if row.point.actual_count is not none else '待登记' }}{% if row.actual_delta is not none %}（较上次 {{ '%+d'|format(row.actual_delta) }} 项）{% endif %}{% if row.actual_width is not none %}<div class="trend-track"><span class="trend-actual" style="width:{{ row.actual_width }}%"></span></div>{% endif %}</div></div>{% endfor %}{% else %}<p>尚无检查点数据，请先建立进度基线。</p>{% endif %}
+<p><a href="{{ url_for('tasks.project_overview', project_id=project.id) }}">查看基线版本、证据和修订记录</a></p></section>
+{% endblock %}

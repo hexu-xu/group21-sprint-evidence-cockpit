@@ -12,6 +12,8 @@
     <a class="button button-secondary" href="{{ url_for('tasks.list_tasks', project_id=project.id) }}">查看任务看板</a>
   </section>
 
+  <p><a class="button button-secondary" href="{{ url_for('tasks.progress_trend', project_id=project.id) }}">查看项目进度趋势</a></p>
+
   <section class="metric-grid" aria-label="当前项目任务统计">
     <div class="metric-card"><span>任务总数</span><strong>{{ stats.total }}</strong><small>仅统计当前项目</small></div>
     <div class="metric-card"><span>已完成</span><strong>{{ stats.done }}</strong><small>完成率 {{ stats.completion_rate }}%</small></div>

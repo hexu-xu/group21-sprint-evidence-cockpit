@@ -18,14 +18,25 @@ class User(UserMixin, db.Model):
     id = db.Column(db.Integer, primary_key=True)
     username = db.Column(db.String(80), unique=True, nullable=False)
     password_hash = db.Column(db.String(255), nullable=False)
+    role_id = db.Column(db.Integer, db.ForeignKey("user_roles.id"), nullable=True)
     platform_role = db.Column(db.String(30), nullable=False)
     evidence_role = db.Column(db.String(30), nullable=False, default="product")
     active = db.Column(db.Boolean, nullable=False, default=True)
     created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utc_now)
+    role = db.relationship("UserRole")
 
     @property
     def is_active(self):
         return self.active
+
+
+class UserRole(db.Model):
+    """Named role with a fixed, visible permission profile."""
+
+    __tablename__ = "user_roles"
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(80), unique=True, nullable=False)
+    platform_role = db.Column(db.String(30), nullable=False)
 
 
 class Project(db.Model):
@@ -84,6 +95,19 @@ class TaskStatusEvent(db.Model):
     to_status = db.Column(db.String(20), nullable=False)
     actor_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
     changed_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utc_now)
+
+
+class TaskComment(db.Model):
+    """A member's immutable progress note on a task."""
+
+    __tablename__ = "task_comments"
+
+    id = db.Column(db.Integer, primary_key=True)
+    task_id = db.Column(db.Integer, db.ForeignKey("tasks.id"), nullable=False, index=True)
+    author_id = db.Column(db.Integer, db.ForeignKey("users.id"), nullable=False)
+    body = db.Column(db.Text, nullable=False)
+    created_at = db.Column(db.DateTime(timezone=True), nullable=False, default=utc_now)
+    author = db.relationship("User")
 
 
 class ProjectProgressCheckpoint(db.Model):

@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% set active_page = 'members' %}
+{% block title %}项目成员 · 爱管理{% endblock %}
+{% block breadcrumb %}项目成员{% endblock %}
+{% block content %}
+<section class="page-heading"><div><h1>{{ project.name }}的成员与角色</h1><p>核对责任分配和账号状态。</p></div></section>
+<section class="overview-panel"><div class="table-wrap"><table><thead><tr><th>成员</th><th>项目身份</th><th>平台角色</th><th>账号状态</th></tr></thead><tbody>
+{% for item in members %}<tr><td>{{ item.user.username }}</td><td>{{ '项目经理' if item.project_role == 'manager' else '团队成员' }}</td><td>{{ item.user.role.name if item.user.role else item.user.platform_role }}</td><td>{{ '启用' if item.user.active else '停用' }}</td></tr>{% endfor %}
+</tbody></table></div></section>
+{% endblock %}

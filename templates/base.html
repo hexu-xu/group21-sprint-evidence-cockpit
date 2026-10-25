@@ -28,6 +28,12 @@
           创建任务
         </a>
         {% endif %}
+        {% if project is defined and project and (can_manage | default(false) or current_user.platform_role == 'read_only_admin') %}
+        <a class="nav-item {% if active_page == 'members' %}is-active{% endif %}" href="{{ url_for('admin.project_members', project_id=project.id) }}">项目成员</a>
+        <a class="nav-item {% if active_page == 'attention' %}is-active{% endif %}" href="{{ url_for('tasks.attention_tasks', project_id=project.id) }}">待关注任务</a>
+        <a class="nav-item {% if active_page == 'analytics' %}is-active{% endif %}" href="{{ url_for('tasks.analytics', project_id=project.id) }}">统计分析</a>
+        {% endif %}
+        {% if current_user.platform_role == 'admin' %}<a class="nav-item {% if active_page == 'users' %}is-active{% endif %}" href="{{ url_for('admin.users') }}">用户与角色</a>{% endif %}
       </nav>
       <div class="sidebar-spacer"></div>
       <div class="sidebar-account">

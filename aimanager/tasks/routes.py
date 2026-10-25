@@ -1,6 +1,6 @@
 """Project manager team view and member-owned task workflow."""
 
-from datetime import date
+from datetime import date, datetime, timedelta, timezone
 from collections import OrderedDict
 
 from flask import abort, flash, redirect, render_template, request, url_for
@@ -8,7 +8,7 @@ from flask_login import current_user, login_required
 
 from ..extensions import db
 from ..models import (Project, ProjectMember, ProjectProgressCheckpoint,
-                      ProjectProgressCheckpointRevision, Task, User)
+                      ProjectProgressCheckpointRevision, Task, TaskComment, User, utc_now)
 from ..permissions import can_change_status, can_manage_tasks, can_view_task, require_manage_tasks, require_view_project
 from . import bp
 from .service import TaskInputError, change_status, create_task, delete_task
@@ -64,6 +64,35 @@ def list_tasks():
     if not can_manage and current_user.platform_role != "read_only_admin":
         # Filter in SQL, before results reach the template or response.
         query = query.where(Task.assignee_id == current_user.id)
+    filters = {key: request.args.get(key, "").strip() for key in
+               ("priority", "assignee_id", "due_from", "due_to", "q")}
+    filter_query = {key: value for key, value in filters.items() if value}
+    if filters["priority"]:
+        if filters["priority"] not in {"low", "medium", "high"}:
+            abort(400)
+        query = query.where(Task.priority == filters["priority"])
+    if filters["assignee_id"]:
+        try:
+            assignee_id = int(filters["assignee_id"])
+        except ValueError:
+            abort(400)
+        if not (can_manage or current_user.platform_role == "read_only_admin") and assignee_id != current_user.id:
+            abort(403)
+        query = query.where(Task.assignee_id == assignee_id)
+    for key, operator in (("due_from", Task.due_date.__ge__),
+                          ("due_to", Task.due_date.__le__)):
+        if filters[key]:
+            try:
+                due = date.fromisoformat(filters[key])
+            except ValueError:
+                abort(400)
+            query = query.where(operator(due))
+    if filters["due_from"] and filters["due_to"] and filters["due_from"] > filters["due_to"]:
+        abort(400)
+    if filters["q"]:
+        if len(filters["q"]) > 120:
+            abort(400)
+        query = query.where(Task.title.contains(filters["q"]))
     tasks = db.session.scalars(query).all()
     board = {status: [task for task in tasks if task.status == status]
              for status in ("todo", "in_progress", "done")}
@@ -72,10 +101,105 @@ def list_tasks():
         modules.setdefault(task.module_name, {status: [] for status in board})[task.status].append(task)
     stats = task_statistics(tasks, date.today())
     full_project_view = can_manage or current_user.platform_role == "read_only_admin"
+    members = db.session.scalars(
+        db.select(User).join(ProjectMember, User.id == ProjectMember.user_id)
+        .where(ProjectMember.project_id == project.id).order_by(User.username)
+    ).all() if full_project_view else []
     return render_template("tasks/list.html", project=project, tasks=tasks,
                            can_manage=can_manage, board=board, modules=modules,
                            active_status=active_status, stats=stats, today=date.today(),
-                           full_project_view=full_project_view)
+                           full_project_view=full_project_view, filters=filters,
+                           filter_query=filter_query, members=members)
+
+
+def _manager_project():
+    project = selected_project()
+    if project is None:
+        abort(404)
+    if not can_manage_tasks(current_user, project.id) and current_user.platform_role != "read_only_admin":
+        abort(403)
+    return project
+
+
+@bp.get("/attention")
+@login_required
+def attention_tasks():
+    """D4: incomplete overdue or untouched tasks, scoped to one project."""
+    project = _manager_project()
+    try:
+        stale_days = int(request.args.get("stale_days", "7"))
+    except ValueError:
+        abort(400)
+    if not 1 <= stale_days <= 365:
+        abort(400)
+    today = date.today()
+    cutoff = utc_now() - timedelta(days=stale_days)
+    tasks = db.session.scalars(db.select(Task).where(Task.project_id == project.id)
+                               .order_by(Task.due_date, Task.id)).all()
+    attention = []
+    for task in tasks:
+        if task.status == "done":
+            continue
+        updated = task.updated_at.replace(tzinfo=timezone.utc) if task.updated_at.tzinfo is None else task.updated_at
+        overdue = task.due_date < today
+        stale = updated < cutoff
+        if overdue or stale:
+            attention.append((task, overdue, stale))
+    return render_template("tasks/attention.html", project=project, attention=attention,
+                           stale_days=stale_days, can_manage=can_manage_tasks(current_user, project.id))
+
+
+@bp.get("/analytics")
+@login_required
+def analytics():
+    """D6: status counts for a selected due-date window."""
+    project = _manager_project()
+    bounds = {}
+    for key in ("from_date", "to_date"):
+        raw = request.args.get(key, "").strip()
+        try:
+            bounds[key] = date.fromisoformat(raw) if raw else None
+        except ValueError:
+            abort(400)
+    if bounds["from_date"] and bounds["to_date"] and bounds["from_date"] > bounds["to_date"]:
+        abort(400)
+    query = db.select(Task).where(Task.project_id == project.id)
+    if bounds["from_date"]:
+        query = query.where(Task.due_date >= bounds["from_date"])
+    if bounds["to_date"]:
+        query = query.where(Task.due_date <= bounds["to_date"])
+    tasks = db.session.scalars(query.order_by(Task.due_date, Task.id)).all()
+    stats = task_statistics(tasks, date.today())
+    by_date = OrderedDict()
+    for task in tasks:
+        row = by_date.setdefault(task.due_date, {"todo": 0, "in_progress": 0, "done": 0})
+        row[task.status] += 1
+    return render_template("tasks/analytics.html", project=project, stats=stats,
+                           by_date=by_date, bounds=bounds,
+                           can_manage=can_manage_tasks(current_user, project.id))
+
+
+@bp.get("/trend")
+@login_required
+def progress_trend():
+    """D3: chronological cumulative plan/actual trend without interpolating missing actuals."""
+    project = _manager_project()
+    checkpoints = db.session.scalars(
+        db.select(ProjectProgressCheckpoint).where(ProjectProgressCheckpoint.project_id == project.id)
+        .order_by(ProjectProgressCheckpoint.target_date)
+    ).all()
+    ceiling = max([1] + [max(c.planned_count, c.actual_count or 0) for c in checkpoints])
+    rows = []
+    previous_actual = None
+    for item in checkpoints:
+        actual_delta = None if item.actual_count is None or previous_actual is None else item.actual_count - previous_actual
+        if item.actual_count is not None:
+            previous_actual = item.actual_count
+        rows.append({"point": item, "plan_width": round(item.planned_count * 100 / ceiling),
+                     "actual_width": round(item.actual_count * 100 / ceiling) if item.actual_count is not None else None,
+                     "actual_delta": actual_delta})
+    return render_template("tasks/trend.html", project=project, rows=rows,
+                           can_manage=can_manage_tasks(current_user, project.id))
 
 
 @bp.get("/overview")
@@ -306,9 +430,31 @@ def task_detail(task_id):
         db.select(Task.module_name).where(Task.project_id == task.project_id)
         .distinct().order_by(Task.module_name)
     ).all()
+    comments = db.session.scalars(
+        db.select(TaskComment).where(TaskComment.task_id == task.id)
+        .order_by(TaskComment.created_at, TaskComment.id)
+    ).all()
     return render_template("tasks/detail.html", task=task, existing_modules=existing_modules,
+                           comments=comments,
                            can_update=can_change_status(current_user, task),
                            can_manage=can_manage_tasks(current_user, task.project_id))
+
+
+@bp.post("/<int:task_id>/comments")
+@login_required
+def add_comment(task_id):
+    task = db.get_or_404(Task, task_id)
+    if not can_change_status(current_user, task):
+        abort(403)
+    body = request.form.get("body", "").strip()
+    if not body or len(body) > 2000:
+        flash("进展备注不能为空且不能超过2000字", "error")
+    else:
+        db.session.add(TaskComment(task_id=task.id, author_id=current_user.id, body=body))
+        task.updated_at = utc_now()
+        db.session.commit()
+        flash("进展备注已保存", "success")
+    return redirect(url_for("tasks.task_detail", task_id=task.id))
 
 
 @bp.post("/<int:task_id>/status")
