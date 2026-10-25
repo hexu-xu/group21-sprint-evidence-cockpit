@@ -1,6 +1,6 @@
 # 故事地图待办功能验收记录
 
-本记录对应 `codex/complete-backlog-stories` 分支。以《爱管理_用户故事地图_Excel.xlsx》中的原始故事文字为验收范围；不改变此前 Sprint 3 Release Tag。下列结论为开发者在本分支的本地功能验收，团队合并与发布结论另行记录。
+本记录对应从 `codex/complete-backlog-stories` 分支提交的扩展功能。以《爱管理_用户故事地图_Excel.xlsx》中的原始故事文字为验收范围；不改变此前 Sprint 3 Release Tag。下列结论为开发者在扩展提交上的本地功能验收，主干复测与发布结论另行记录。
 
 | 故事 | 用户操作与预期 | 本地验证 |
 | --- | --- | --- |
